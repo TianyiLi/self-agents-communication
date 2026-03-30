@@ -1,12 +1,8 @@
-import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import type { SessionManager } from "./session";
 
 /**
  * Abstract notifier interface.
  * Decouples push delivery from the specific MCP notification mechanism.
- *
- * Implementations:
- * - LoggingNotifier: uses sendLoggingMessage (works with ALL MCP clients)
- * - ChannelNotifier: uses notifications/claude/channel (Claude Code only, richer context)
  */
 export interface Notifier {
   send(payload: NotifierPayload): Promise<void>;
@@ -19,34 +15,56 @@ export interface NotifierPayload {
 }
 
 /**
- * Universal MCP notifier via sendLoggingMessage.
- * Supported by all MCP clients (Claude Code, Gemini CLI, Cursor, etc.)
+ * Universal MCP notifier — writes JSON-RPC notification directly to the active SSE transport.
+ * Bypasses McpServer/Server internal transport management which breaks on reconnect.
+ *
+ * Uses sendLoggingMessage format (notifications/message) which all MCP clients support.
  */
-export class LoggingNotifier implements Notifier {
-  constructor(private server: Server) {}
+export class TransportNotifier implements Notifier {
+  constructor(private sessionManager: SessionManager) {}
 
   async send(payload: NotifierPayload): Promise<void> {
-    await this.server.sendLoggingMessage({
-      level: "info",
-      data: {
-        stream: payload.stream,
-        content: payload.content,
-        ...payload.meta,
+    const sessionId = this.sessionManager.getActiveSessionId();
+    if (!sessionId) return;
+
+    const transport = this.sessionManager.getTransport(sessionId);
+    if (!transport) return;
+
+    // Write JSON-RPC notification directly to the SSE transport
+    const notification = {
+      jsonrpc: "2.0" as const,
+      method: "notifications/message",
+      params: {
+        level: "info",
+        data: {
+          stream: payload.stream,
+          content: payload.content,
+          ...payload.meta,
+        },
       },
-    });
+    };
+
+    await transport.send(notification);
   }
 }
 
 /**
- * Claude Code channel notifier via notifications/claude/channel.
+ * Claude Code channel notifier — writes channel notification directly to SSE transport.
  * Delivers as <channel> XML tags in Claude's context.
  * Only works with Claude Code (--channels flag required).
  */
 export class ChannelNotifier implements Notifier {
-  constructor(private server: Server) {}
+  constructor(private sessionManager: SessionManager) {}
 
   async send(payload: NotifierPayload): Promise<void> {
-    await this.server.notification({
+    const sessionId = this.sessionManager.getActiveSessionId();
+    if (!sessionId) return;
+
+    const transport = this.sessionManager.getTransport(sessionId);
+    if (!transport) return;
+
+    const notification = {
+      jsonrpc: "2.0" as const,
       method: "notifications/claude/channel",
       params: {
         content: payload.content,
@@ -55,13 +73,14 @@ export class ChannelNotifier implements Notifier {
           ...payload.meta,
         },
       },
-    });
+    };
+
+    await transport.send(notification);
   }
 }
 
 /**
- * Composite notifier — tries channel first, falls back to logging.
- * Use this when you don't know the client type.
+ * Composite notifier — tries multiple notifiers in order.
  */
 export class CompositeNotifier implements Notifier {
   private notifiers: Notifier[];
@@ -74,9 +93,9 @@ export class CompositeNotifier implements Notifier {
     for (const notifier of this.notifiers) {
       try {
         await notifier.send(payload);
-        return; // First success wins
+        return;
       } catch {
-        continue; // Try next
+        continue;
       }
     }
   }
@@ -87,22 +106,22 @@ export class CompositeNotifier implements Notifier {
  *
  * NOTIFIER_MODE env var:
  *   "channel" — Claude Code channel only
- *   "logging" — Universal logging only (default)
+ *   "logging" — Universal transport notifier (default)
  *   "auto"    — Try channel first, fallback to logging
  */
-export function createNotifier(server: Server, mode?: string): Notifier {
+export function createNotifier(sessionManager: SessionManager, mode?: string): Notifier {
   const notifierMode = mode || Bun.env.NOTIFIER_MODE || "logging";
 
   switch (notifierMode) {
     case "channel":
-      return new ChannelNotifier(server);
+      return new ChannelNotifier(sessionManager);
     case "auto":
       return new CompositeNotifier(
-        new ChannelNotifier(server),
-        new LoggingNotifier(server)
+        new ChannelNotifier(sessionManager),
+        new TransportNotifier(sessionManager)
       );
     case "logging":
     default:
-      return new LoggingNotifier(server);
+      return new TransportNotifier(sessionManager);
   }
 }

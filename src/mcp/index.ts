@@ -33,7 +33,8 @@ export async function createMcpServer(
   const sessionManager = new SessionManager();
 
   // Create notifier — NOTIFIER_MODE env: "logging" (all clients), "channel" (Claude), "auto" (try both)
-  const notifier = createNotifier(mcpServer.server);
+  // Notifier writes directly to SSE transport via sessionManager (bypasses Server internal transport)
+  const notifier = createNotifier(sessionManager);
   const pushLoop = new PushLoop(redis, notifier, sessionManager);
 
   // Restore subscriptions from Redis (persisted across restarts)
