@@ -1,8 +1,10 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RedisService } from "../../services/redis";
+import type { SessionManager } from "../session";
+import { guardSession } from "./guard";
 
-export function registerGetHistoryTool(server: McpServer, redis: RedisService) {
+export function registerGetHistoryTool(server: McpServer, redis: RedisService, sessionManager: SessionManager) {
   server.tool(
     "get_history",
     "Retrieve historical messages from any stream (channel, group, or agent inbox). " +
@@ -20,7 +22,9 @@ export function registerGetHistoryTool(server: McpServer, redis: RedisService) {
           "Messages are returned in chronological order (oldest first)."
       ),
     },
-    async ({ stream, count }) => {
+    async ({ stream, count }, extra) => {
+      const denied = guardSession(extra.sessionId ?? "", sessionManager);
+      if (denied) return denied;
       const capped = Math.min(count, 50);
       const messages = await redis.xrange(stream, "-", "+", capped);
       return {

@@ -2,11 +2,14 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AgentRegistry } from "../../services/agent-registry";
 import type { PushLoop } from "../push";
+import type { SessionManager } from "../session";
+import { guardSession } from "./guard";
 
 export function registerUnsubscribeTool(
   server: McpServer,
   registry: AgentRegistry,
-  pushLoop: PushLoop
+  pushLoop: PushLoop,
+  sessionManager: SessionManager
 ) {
   server.tool(
     "unsubscribe",
@@ -16,7 +19,9 @@ export function registerUnsubscribeTool(
     {
       channel: z.string().describe("Channel name to unsubscribe from"),
     },
-    async ({ channel }) => {
+    async ({ channel }, extra) => {
+      const denied = guardSession(extra.sessionId ?? "", sessionManager);
+      if (denied) return denied;
       await registry.removeSubscription(channel);
       pushLoop.removeChannel(channel);
       return {

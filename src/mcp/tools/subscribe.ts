@@ -3,12 +3,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RedisService } from "../../services/redis";
 import type { AgentRegistry } from "../../services/agent-registry";
 import type { PushLoop } from "../push";
+import type { SessionManager } from "../session";
+import { guardSession } from "./guard";
 
 export function registerSubscribeTool(
   server: McpServer,
   redis: RedisService,
   registry: AgentRegistry,
-  pushLoop: PushLoop
+  pushLoop: PushLoop,
+  sessionManager: SessionManager
 ) {
   server.tool(
     "subscribe",
@@ -24,7 +27,9 @@ export function registerSubscribeTool(
           "Creates the channel if it doesn't exist yet."
       ),
     },
-    async ({ channel }) => {
+    async ({ channel }, extra) => {
+      const denied = guardSession(extra.sessionId ?? "", sessionManager);
+      if (denied) return denied;
       await registry.addSubscription(channel);
       pushLoop.addChannel(channel);
 

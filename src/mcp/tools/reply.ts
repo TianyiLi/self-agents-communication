@@ -1,8 +1,10 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Bot } from "grammy";
+import type { SessionManager } from "../session";
+import { guardSession } from "./guard";
 
-export function registerReplyTool(server: McpServer, bot: Bot) {
+export function registerReplyTool(server: McpServer, bot: Bot, sessionManager: SessionManager) {
   server.tool(
     "reply",
     "Reply to the user via Telegram. Use this to send task results, answers, status updates, " +
@@ -21,7 +23,9 @@ export function registerReplyTool(server: McpServer, bot: Bot) {
         "Optional message ID to reply to, creating a thread. Use the message_id from the incoming message for context."
       ),
     },
-    async ({ chat_id, content, reply_to_message_id }) => {
+    async ({ chat_id, content, reply_to_message_id }, extra) => {
+      const denied = guardSession(extra.sessionId ?? "", sessionManager);
+      if (denied) return denied;
       try {
         await bot.api.sendMessage(chat_id, content, {
           parse_mode: "Markdown",

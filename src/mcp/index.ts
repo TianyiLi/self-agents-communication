@@ -7,6 +7,7 @@ import type { AgentRegistry } from "../services/agent-registry";
 import type { PairingService } from "../services/pairing";
 import type { Bot } from "grammy";
 import { PushLoop } from "./push";
+import { SessionManager } from "./session";
 import { registerAgentPairTool } from "./tools/agent-pair";
 import { registerReplyTool } from "./tools/reply";
 import { registerPublishTool } from "./tools/publish";
@@ -28,8 +29,10 @@ export async function createMcpServer(
     version: "1.0.0",
   });
 
+  const sessionManager = new SessionManager();
+
   // PushLoop uses the low-level Server for sending notifications
-  const pushLoop = new PushLoop(redis, mcpServer.server);
+  const pushLoop = new PushLoop(redis, mcpServer.server, sessionManager);
 
   // Restore subscriptions from Redis (persisted across restarts)
   const subs = await registry.getSubscriptions();
@@ -37,36 +40,32 @@ export async function createMcpServer(
     pushLoop.addChannel(channel);
   }
 
-  // Register all 8 tools
-  registerAgentPairTool(mcpServer, pairing);
-  registerReplyTool(mcpServer, bot);
-  registerPublishTool(mcpServer, redis);
-  registerSubscribeTool(mcpServer, redis, registry, pushLoop);
-  registerUnsubscribeTool(mcpServer, registry, pushLoop);
-  registerListAgentsTool(mcpServer, registry);
-  registerGetHistoryTool(mcpServer, redis);
-  registerSendDirectTool(mcpServer, redis);
+  // Register all 8 tools — pass sessionManager for access control
+  registerAgentPairTool(mcpServer, pairing, sessionManager);
+  registerReplyTool(mcpServer, bot, sessionManager);
+  registerPublishTool(mcpServer, redis, sessionManager);
+  registerSubscribeTool(mcpServer, redis, registry, pushLoop, sessionManager);
+  registerUnsubscribeTool(mcpServer, registry, pushLoop, sessionManager);
+  registerListAgentsTool(mcpServer, registry, sessionManager);
+  registerGetHistoryTool(mcpServer, redis, sessionManager);
+  registerSendDirectTool(mcpServer, redis, sessionManager);
 
   // Start the push loop (begins listening to Redis Streams)
   await pushLoop.start();
 
   // --- SSE HTTP Server ---
-  // Uses node:http because SSEServerTransport requires Node.js
-  // http.ServerResponse (not Bun's Web API Response)
-  const transports = new Map<string, SSEServerTransport>();
-
   const httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url!, `http://localhost:${Config.mcpPort}`);
 
-    // SSE endpoint — clients connect here to establish the event stream
+    // SSE endpoint — clients connect here
     if (url.pathname === "/sse") {
-      consola.info("MCP client connected via SSE");
+      consola.info("MCP client connecting via SSE");
       const transport = new SSEServerTransport("/messages", res);
-      transports.set(transport.sessionId, transport);
+      sessionManager.addTransport(transport.sessionId, transport);
 
       transport.onclose = () => {
         consola.info(`MCP client disconnected: ${transport.sessionId}`);
-        transports.delete(transport.sessionId);
+        sessionManager.removeTransport(transport.sessionId);
       };
 
       await mcpServer.connect(transport);
@@ -76,7 +75,9 @@ export async function createMcpServer(
     // Message endpoint — clients POST JSON-RPC messages here
     if (url.pathname === "/messages" && req.method === "POST") {
       const sessionId = url.searchParams.get("sessionId");
-      const transport = sessionId ? transports.get(sessionId) : undefined;
+      const transport = sessionId
+        ? sessionManager.getTransport(sessionId)
+        : undefined;
       if (transport) {
         await transport.handlePostMessage(req, res);
         return;
@@ -86,12 +87,17 @@ export async function createMcpServer(
       return;
     }
 
-    // Health check / info endpoint
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end(`Agent Communication MCP Server: ${Config.agentId}`);
+    // Health check
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        agent: Config.agentId,
+        activeSession: sessionManager.hasActiveSession(),
+      })
+    );
   });
 
   httpServer.listen(Config.mcpPort);
 
-  return { mcpServer, pushLoop, httpServer };
+  return { mcpServer, pushLoop, httpServer, sessionManager };
 }

@@ -1,11 +1,13 @@
 import type { RedisService } from "../services/redis";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { Config } from "@config/index";
+import type { SessionManager } from "./session";
 import consola from "consola";
 
 /**
  * PushLoop continuously reads from Redis Streams using XREADGROUP BLOCK
  * and pushes incoming messages to the MCP client via server.sendLoggingMessage().
+ * Only pushes when there is an active paired session.
  *
  * Fixed streams (always monitored):
  *   - stream:agent:{id}:inbox   (direct messages + Telegram user messages)
@@ -19,11 +21,13 @@ export class PushLoop {
   private subscribedChannels = new Set<string>();
   private redis: RedisService;
   private server: Server;
+  private sessionManager: SessionManager;
   private agentId: string;
 
-  constructor(redis: RedisService, server: Server) {
+  constructor(redis: RedisService, server: Server, sessionManager: SessionManager) {
     this.redis = redis;
     this.server = server;
+    this.sessionManager = sessionManager;
     this.agentId = Config.agentId;
   }
 
@@ -82,17 +86,19 @@ export class PushLoop {
 
         for (const result of results) {
           for (const msg of result.messages) {
-            try {
-              // Push message to MCP client via logging notification
-              await this.server.sendLoggingMessage({
-                level: "info",
-                data: {
-                  stream: result.streamKey,
-                  ...msg.message,
-                },
-              });
-            } catch {
-              // SSE connection might not be established yet — silently ignore
+            // Only push if there's an active paired session
+            if (this.sessionManager.hasActiveSession()) {
+              try {
+                await this.server.sendLoggingMessage({
+                  level: "info",
+                  data: {
+                    stream: result.streamKey,
+                    ...msg.message,
+                  },
+                });
+              } catch {
+                // SSE connection might not be established yet
+              }
             }
             await this.redis.xack(
               result.streamKey,

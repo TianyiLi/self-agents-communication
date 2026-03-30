@@ -1,8 +1,10 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AgentRegistry } from "../../services/agent-registry";
+import type { SessionManager } from "../session";
+import { guardSession } from "./guard";
 
-export function registerListAgentsTool(server: McpServer, registry: AgentRegistry) {
+export function registerListAgentsTool(server: McpServer, registry: AgentRegistry, sessionManager: SessionManager) {
   server.tool(
     "list_agents",
     "List all registered agents in the team with their roles, capabilities, and online status. " +
@@ -16,7 +18,9 @@ export function registerListAgentsTool(server: McpServer, registry: AgentRegistr
           "Default false returns all registered agents including offline ones."
       ),
     },
-    async ({ only_online }) => {
+    async ({ only_online }, extra) => {
+      const denied = guardSession(extra.sessionId ?? "", sessionManager);
+      if (denied) return denied;
       const agents = await registry.listAgents(only_online);
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ agents }) }],

@@ -2,8 +2,10 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RedisService } from "../../services/redis";
 import { Config } from "@config/index";
+import type { SessionManager } from "../session";
+import { guardSession } from "./guard";
 
-export function registerPublishTool(server: McpServer, redis: RedisService) {
+export function registerPublishTool(server: McpServer, redis: RedisService, sessionManager: SessionManager) {
   server.tool(
     "publish",
     "Publish a message to a named channel. All agents subscribed to this channel will receive it " +
@@ -22,7 +24,9 @@ export function registerPublishTool(server: McpServer, redis: RedisService) {
           "'result' for task outputs, 'status' for progress/status updates"
       ),
     },
-    async ({ channel, content, type }) => {
+    async ({ channel, content, type }, extra) => {
+      const denied = guardSession(extra.sessionId ?? "", sessionManager);
+      if (denied) return denied;
       const msgId = await redis.xadd(
         `stream:channel:${channel}`,
         {

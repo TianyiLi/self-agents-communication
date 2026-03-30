@@ -1,8 +1,13 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PairingService } from "../../services/pairing";
+import type { SessionManager } from "../session";
 
-export function registerAgentPairTool(server: McpServer, pairing: PairingService) {
+export function registerAgentPairTool(
+  server: McpServer,
+  pairing: PairingService,
+  sessionManager: SessionManager
+) {
   server.tool(
     "agent_pair",
     "Complete the pairing handshake by entering the 6-digit code from Telegram. " +
@@ -10,9 +15,28 @@ export function registerAgentPairTool(server: McpServer, pairing: PairingService
       "you cannot receive messages or interact with users. " +
       "Ask the user to send /start to the Telegram bot first, then enter the code they receive here.",
     { code: z.string().describe("The 6-digit numeric pairing code displayed in the Telegram /start message") },
-    async ({ code }) => {
+    async ({ code }, extra) => {
+      const sessionId = extra.sessionId ?? "";
+
+      // Try to claim the active session slot
+      const claim = await sessionManager.claimSession(sessionId);
+      if (!claim.ok) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              status: "error",
+              message: claim.reason,
+            }),
+          }],
+        };
+      }
+
+      // Verify the pairing code
       const userId = await pairing.verifyCode(code);
       if (!userId) {
+        // Failed — release the session claim
+        sessionManager.release(sessionId);
         return {
           content: [{
             type: "text" as const,
@@ -23,6 +47,7 @@ export function registerAgentPairTool(server: McpServer, pairing: PairingService
           }],
         };
       }
+
       return {
         content: [{
           type: "text" as const,

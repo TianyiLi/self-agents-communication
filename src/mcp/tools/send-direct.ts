@@ -2,8 +2,10 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RedisService } from "../../services/redis";
 import { Config } from "@config/index";
+import type { SessionManager } from "../session";
+import { guardSession } from "./guard";
 
-export function registerSendDirectTool(server: McpServer, redis: RedisService) {
+export function registerSendDirectTool(server: McpServer, redis: RedisService, sessionManager: SessionManager) {
   server.tool(
     "send_direct",
     "Send a direct message to a specific agent by their agent ID. The message goes straight " +
@@ -21,7 +23,9 @@ export function registerSendDirectTool(server: McpServer, redis: RedisService) {
           "'result' for task outputs, 'status' for progress/status updates"
       ),
     },
-    async ({ target_agent_id, content, type }) => {
+    async ({ target_agent_id, content, type }, extra) => {
+      const denied = guardSession(extra.sessionId ?? "", sessionManager);
+      if (denied) return denied;
       const msgId = await redis.xadd(
         `stream:agent:${target_agent_id}:inbox`,
         {
