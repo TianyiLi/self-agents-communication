@@ -10,11 +10,15 @@ export function registerAgentPairTool(
 ) {
   server.tool(
     "agent_pair",
-    "Complete the pairing handshake by entering the 6-digit code from Telegram. " +
-      "This should be the FIRST tool you call after connecting. Without pairing, " +
-      "you cannot receive messages or interact with users. " +
-      "Ask the user to send /start to the Telegram bot first, then enter the code they receive here.",
-    { code: z.string().describe("The 6-digit numeric pairing code displayed in the Telegram /start message") },
+    "Establish this MCP session as the active controller. " +
+      "If already paired on Telegram, pass an empty string to resume the session. " +
+      "If not yet paired, ask the user to send /start to the Telegram bot, then enter the 6-digit code here. " +
+      "This should be the FIRST tool you call after connecting.",
+    {
+      code: z.string().describe(
+        "The 6-digit pairing code from Telegram /start, or empty string to resume an existing pairing"
+      ),
+    },
     async ({ code }, extra) => {
       const sessionId = extra.sessionId ?? "";
 
@@ -24,9 +28,34 @@ export function registerAgentPairTool(
         return {
           content: [{
             type: "text" as const,
+            text: JSON.stringify({ status: "error", message: claim.reason }),
+          }],
+        };
+      }
+
+      // If code is empty, check if already paired on Telegram side
+      if (!code) {
+        const existingUser = await pairing.getPairedUser();
+        if (existingUser) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: JSON.stringify({
+                status: "paired",
+                user_id: existingUser,
+                message: "Session resumed. Already paired on Telegram.",
+              }),
+            }],
+          };
+        }
+        // Not paired at all
+        sessionManager.release(sessionId);
+        return {
+          content: [{
+            type: "text" as const,
             text: JSON.stringify({
               status: "error",
-              message: claim.reason,
+              message: "Not paired yet. Ask the user to send /start to the Telegram bot first.",
             }),
           }],
         };
@@ -35,14 +64,13 @@ export function registerAgentPairTool(
       // Verify the pairing code
       const userId = await pairing.verifyCode(code);
       if (!userId) {
-        // Failed — release the session claim
         sessionManager.release(sessionId);
         return {
           content: [{
             type: "text" as const,
             text: JSON.stringify({
               status: "error",
-              message: "Invalid or expired pairing code. Ask the user to send /start again in Telegram to get a fresh code.",
+              message: "Invalid or expired pairing code. Ask the user to send /start again in Telegram.",
             }),
           }],
         };

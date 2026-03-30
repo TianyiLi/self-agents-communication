@@ -53,19 +53,45 @@ export async function createMcpServer(
   // Start the push loop (begins listening to Redis Streams)
   await pushLoop.start();
 
-  // --- SSE HTTP Server ---
+  // --- SSE HTTP Server (single session) ---
+  // McpServer can only connect() to one transport at a time.
+  // New connections close the previous transport before connecting.
+  let activeTransport: SSEServerTransport | null = null;
+
   const httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url!, `http://localhost:${Config.mcpPort}`);
 
-    // SSE endpoint — clients connect here
+    // SSE endpoint — single session only
     if (url.pathname === "/sse") {
       consola.info("MCP client connecting via SSE");
+
+      // Close previous transport if exists
+      if (activeTransport) {
+        consola.info("Closing previous SSE connection");
+        const oldId = activeTransport.sessionId;
+        try {
+          await activeTransport.close();
+        } catch {
+          // Already closed
+        }
+        sessionManager.removeTransport(oldId);
+        // Reset McpServer's internal transport so connect() works again
+        // Don't call server.close() — that kills the Server and breaks push loop
+        (mcpServer as any)._transport = undefined;
+        (mcpServer.server as any)._transport = undefined;
+        activeTransport = null;
+      }
+
       const transport = new SSEServerTransport("/messages", res);
+      activeTransport = transport;
       sessionManager.addTransport(transport.sessionId, transport);
 
       transport.onclose = () => {
         consola.info(`MCP client disconnected: ${transport.sessionId}`);
         sessionManager.removeTransport(transport.sessionId);
+        if (activeTransport === transport) {
+          activeTransport = null;
+        }
       };
 
       await mcpServer.connect(transport);

@@ -51,10 +51,27 @@ async function main() {
     }
   }, 30_000);
 
-  // 7. Start bot polling
-  bot.start({
-    onStart: () => consola.success("Bot polling started"),
-  });
+  // 7. Start bot polling (with retry for getUpdates conflict)
+  const startBot = async (retries = 3) => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        await bot.api.deleteWebhook({ drop_pending_updates: true });
+        bot.start({
+          drop_pending_updates: true,
+          onStart: () => consola.success("Bot polling started"),
+        });
+        return;
+      } catch (err: any) {
+        if (err?.error_code === 409 && i < retries - 1) {
+          consola.warn(`Polling conflict, retrying in 5s... (${i + 1}/${retries})`);
+          await Bun.sleep(5000);
+        } else {
+          throw err;
+        }
+      }
+    }
+  };
+  await startBot();
 
   // 8. Graceful shutdown
   const shutdown = async () => {
