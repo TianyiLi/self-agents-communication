@@ -1,55 +1,79 @@
-import { Env } from "@config/index";
-import {
-  loadActions,
-  loadCommands,
-  loadConversations,
-} from "@utils/client/loaders";
-import type { Context } from "@utils/stuff/types";
-import consola, { createConsola } from "consola";
-import { Bot, session, type Middleware } from "grammy";
-import { hydrate } from "@grammyjs/hydrate";
-import { parseMode } from "@grammyjs/parse-mode";
-import { emojiParser } from "@grammyjs/emoji";
+import consola from "consola";
+import { Config } from "../config/index";
+import { RedisService } from "./services/redis";
+import { AgentRegistry } from "./services/agent-registry";
+import { PairingService } from "./services/pairing";
+import { createBot } from "./bot/index";
+import type { AgentProfile } from "./types";
 
-const client = new Bot<Context>(Env.BotToken);
+async function main() {
+  consola.info(`Starting agent: ${Config.agentId} (${Config.agentRole})`);
 
-client.api.config.use(parseMode("Markdown"));
+  // 1. Connect Redis
+  const redis = new RedisService();
+  await redis.connect(Config.redisUri);
+  consola.success("Redis connected");
 
-client.use(hydrate());
-client.use(emojiParser());
+  // 2. Agent registry
+  const profile: AgentProfile = {
+    agent_id: Config.agentId,
+    name: Config.agentName,
+    role: Config.agentRole,
+    description: Config.agentDesc,
+    capabilities: Config.agentCaps,
+    project: Config.agentProject,
+    bot_username: "", // Will be set after bot init
+  };
 
-client.use(
-  session({
-    type: "single",
-    initial() {
-      return { conversation: {} };
-    },
-  }) as Middleware<Context>
-);
+  const registry = new AgentRegistry(redis, profile);
+  const pairing = new PairingService(redis, Config.agentId);
 
-await loadConversations("./src/Conversations/**/*.ts");
-await loadActions("./src/Actions/**/*.ts");
-await loadCommands("./src/Commands/**/*.ts");
+  // 3. Start Telegram bot
+  const { bot, botUsername } = await createBot(redis, registry, pairing);
+  profile.bot_username = botUsername;
+  consola.success(`Telegram bot ready: @${botUsername}`);
 
-process.on("uncaughtException", consola.error);
-process.on("unhandledRejection", consola.error);
+  // 4. Register agent in Redis
+  await registry.register();
+  consola.success("Agent registered in Redis");
 
-export { client };
+  // 5. MCP server will be integrated from feat/mcp-server branch
+  consola.info("MCP server placeholder — will be integrated from feat/mcp-server branch");
 
-client.start({
-  onStart(botInfo) {
-    consola.ready(`Logged as https://t.me/${botInfo.username}`);
-  },
-  drop_pending_updates: true,
-});
+  // 6. Heartbeat
+  const heartbeatInterval = setInterval(async () => {
+    try {
+      await registry.heartbeat();
+    } catch (err) {
+      consola.error("Heartbeat failed:", err);
+    }
+  }, 30_000);
 
-client.errorHandler = ({ message, error, ctx }) => {
-  consola.error(error);
-  ctx.reply(`Got an error try again later\\!\n\`\`\`\n${message}\`\`\``, {
-    parse_mode: "MarkdownV2",
+  // 7. Start bot polling
+  bot.start({
+    onStart: () => consola.success("Bot polling started"),
   });
-};
 
-/**
- * follow me on youtube/patreon/discord: @uoaio - github: @uo1428 - fiverr: @aryanali945
- */
+  // 8. Graceful shutdown
+  const shutdown = async () => {
+    consola.info("Shutting down...");
+    clearInterval(heartbeatInterval);
+    bot.stop();
+    await registry.goOffline("shutdown");
+    await redis.disconnect();
+    consola.success("Shutdown complete");
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
+  consola.box(
+    `Agent ${Config.agentId} is ready!\nTelegram: @${botUsername}\nMCP: placeholder`
+  );
+}
+
+main().catch((err) => {
+  consola.error("Fatal:", err);
+  process.exit(1);
+});
