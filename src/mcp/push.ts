@@ -1,12 +1,12 @@
 import type { RedisService } from "../services/redis";
-import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { Config } from "@config/index";
 import type { SessionManager } from "./session";
+import type { Notifier } from "./notifier";
 import consola from "consola";
 
 /**
  * PushLoop continuously reads from Redis Streams using XREADGROUP BLOCK
- * and pushes incoming messages to the MCP client via server.sendLoggingMessage().
+ * and pushes incoming messages via the Notifier abstraction.
  * Only pushes when there is an active paired session.
  *
  * Fixed streams (always monitored):
@@ -20,13 +20,13 @@ export class PushLoop {
   private running = false;
   private subscribedChannels = new Set<string>();
   private redis: RedisService;
-  private server: Server;
+  private notifier: Notifier;
   private sessionManager: SessionManager;
   private agentId: string;
 
-  constructor(redis: RedisService, server: Server, sessionManager: SessionManager) {
+  constructor(redis: RedisService, notifier: Notifier, sessionManager: SessionManager) {
     this.redis = redis;
-    this.server = server;
+    this.notifier = notifier;
     this.sessionManager = sessionManager;
     this.agentId = Config.agentId;
   }
@@ -46,7 +46,6 @@ export class PushLoop {
   async start() {
     this.running = true;
 
-    // Ensure consumer groups for fixed streams
     const fixedStreams = [
       `stream:agent:${this.agentId}:inbox`,
       "stream:system:introductions",
@@ -71,7 +70,6 @@ export class PushLoop {
           ...[...this.subscribedChannels].map((c) => `stream:channel:${c}`),
         ];
 
-        // Ensure consumer groups exist for dynamic channels
         for (const key of streamKeys) {
           await this.redis.ensureConsumerGroup(key, `agent:${this.agentId}`);
         }
@@ -81,23 +79,27 @@ export class PushLoop {
           this.agentId,
           streamKeys,
           10,
-          5000 // BLOCK 5 seconds
+          5000
         );
 
         for (const result of results) {
           for (const msg of result.messages) {
-            // Only push if there's an active paired session
             if (this.sessionManager.hasActiveSession()) {
               try {
-                await this.server.sendLoggingMessage({
-                  level: "info",
-                  data: {
-                    stream: result.streamKey,
-                    ...msg.message,
+                await this.notifier.send({
+                  stream: result.streamKey,
+                  content: msg.message.content || JSON.stringify(msg.message),
+                  meta: {
+                    from: msg.message.from || "",
+                    from_name: msg.message.from_name || "",
+                    type: msg.message.type || "",
+                    must_reply: msg.message.must_reply || "false",
+                    chat_id: msg.message.chat_id || "",
+                    message_id: msg.message.message_id || "",
                   },
                 });
               } catch {
-                // SSE connection might not be established yet
+                // Connection not ready
               }
             }
             await this.redis.xack(
@@ -109,7 +111,7 @@ export class PushLoop {
         }
       } catch (err) {
         consola.error("Push loop error:", err);
-        await Bun.sleep(1000); // Back off on error
+        await Bun.sleep(1000);
       }
     }
   }

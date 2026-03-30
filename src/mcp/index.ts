@@ -8,6 +8,7 @@ import type { PairingService } from "../services/pairing";
 import type { Bot } from "grammy";
 import { PushLoop } from "./push";
 import { SessionManager } from "./session";
+import { createNotifier } from "./notifier";
 import { registerAgentPairTool } from "./tools/agent-pair";
 import { registerReplyTool } from "./tools/reply";
 import { registerPublishTool } from "./tools/publish";
@@ -31,8 +32,9 @@ export async function createMcpServer(
 
   const sessionManager = new SessionManager();
 
-  // PushLoop uses the low-level Server for sending notifications
-  const pushLoop = new PushLoop(redis, mcpServer.server, sessionManager);
+  // Create notifier — NOTIFIER_MODE env: "logging" (all clients), "channel" (Claude), "auto" (try both)
+  const notifier = createNotifier(mcpServer.server);
+  const pushLoop = new PushLoop(redis, notifier, sessionManager);
 
   // Restore subscriptions from Redis (persisted across restarts)
   const subs = await registry.getSubscriptions();
