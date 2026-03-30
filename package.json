@@ -1,10 +1,11 @@
 {
-  "name": "grammy-bunjs-telegram-bot-template",
+  "name": "self-agents-communication",
   "module": "src/index.ts",
-  "description": "advance telegram bot telmplate to quick start telegram bot in ts with bunjs, grammyjs... ",
   "type": "module",
   "scripts": {
-    "start": "bun ./src/index.ts"
+    "start": "bun ./src/index.ts",
+    "dev": "bun --watch ./src/index.ts",
+    "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -13,14 +14,12 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@grammyjs/conversations": "^1.2.0",
-    "@grammyjs/emoji": "^1.2.0",
     "@grammyjs/hydrate": "^1.4.1",
     "@grammyjs/parse-mode": "^1.10.0",
-    "@grammyjs/storage-file": "^2.4.2",
-    "@grammyjs/storage-free": "^2.4.2",
-    "axios": "^1.7.9",
+    "@modelcontextprotocol/sdk": "^1.28.0",
     "consola": "^3.3.3",
-    "grammy": "1.30.0"
+    "grammy": "1.30.0",
+    "redis": "^4.7.0",
+    "zod": "^3.24.0"
   }
 }
