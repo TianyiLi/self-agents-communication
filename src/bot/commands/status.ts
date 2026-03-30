@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import type { AgentRegistry } from "../../services/agent-registry";
-import { Config } from "../../../config/index";
+import { Config } from "@config/index";
 
 export function createStatusCommand(registry: AgentRegistry) {
   return async (ctx: Context) => {

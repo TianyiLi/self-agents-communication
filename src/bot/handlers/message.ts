@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import type { RedisService } from "../../services/redis";
-import { Config } from "../../../config/index";
+import { Config } from "@config/index";
 
 export function createMessageHandler(
   redis: RedisService,

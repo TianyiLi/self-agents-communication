@@ -7,11 +7,11 @@ const redis = new RedisService();
 beforeAll(async () => {
   await redis.connect(Bun.env.REDIS_URI || "redis://localhost:6379");
   // Clean test keys
-  await redis.client.del("test:stream", "test:hash", "test:set");
+  await redis.del("test:stream", "test:hash", "test:set");
 });
 
 afterAll(async () => {
-  await redis.client.del("test:stream", "test:hash", "test:set");
+  await redis.del("test:stream", "test:hash", "test:set");
   await redis.disconnect();
 });
 

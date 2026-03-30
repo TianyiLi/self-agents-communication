@@ -20,7 +20,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // Cleanup
-  await redis.client.del(
+  await redis.del(
     "agent:test-agent:profile",
     "agent:test-agent:alive",
     "agent:test-agent:subscriptions"

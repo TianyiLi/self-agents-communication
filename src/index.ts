@@ -1,9 +1,10 @@
 import consola from "consola";
-import { Config } from "../config/index";
+import { Config } from "@config/index";
 import { RedisService } from "./services/redis";
 import { AgentRegistry } from "./services/agent-registry";
 import { PairingService } from "./services/pairing";
 import { createBot } from "./bot/index";
+import { createMcpServer } from "./mcp/index";
 import type { AgentProfile } from "./types";
 
 async function main() {
@@ -37,8 +38,9 @@ async function main() {
   await registry.register();
   consola.success("Agent registered in Redis");
 
-  // 5. MCP server will be integrated from feat/mcp-server branch
-  consola.info("MCP server placeholder — will be integrated from feat/mcp-server branch");
+  // 5. Start MCP server
+  const { pushLoop } = await createMcpServer(redis, registry, pairing, bot);
+  consola.success(`MCP server listening on port ${Config.mcpPort}`);
 
   // 6. Heartbeat
   const heartbeatInterval = setInterval(async () => {
@@ -58,6 +60,7 @@ async function main() {
   const shutdown = async () => {
     consola.info("Shutting down...");
     clearInterval(heartbeatInterval);
+    pushLoop.stop();
     bot.stop();
     await registry.goOffline("shutdown");
     await redis.disconnect();
@@ -69,7 +72,7 @@ async function main() {
   process.on("SIGINT", shutdown);
 
   consola.box(
-    `Agent ${Config.agentId} is ready!\nTelegram: @${botUsername}\nMCP: placeholder`
+    `Agent ${Config.agentId} is ready!\nTelegram: @${botUsername}\nMCP: http://localhost:${Config.mcpPort}/sse`
   );
 }
 

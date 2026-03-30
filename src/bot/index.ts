@@ -1,6 +1,5 @@
 import { Bot } from "grammy";
-import { hydrateReply } from "@grammyjs/parse-mode";
-import { Config } from "../../config/index";
+import { Config } from "@config/index";
 import type { RedisService } from "../services/redis";
 import type { AgentRegistry } from "../services/agent-registry";
 import type { PairingService } from "../services/pairing";
@@ -16,7 +15,6 @@ export async function createBot(
   pairing: PairingService
 ) {
   const bot = new Bot(Config.botToken);
-  bot.use(hydrateReply);
 
   // /start bypasses pairing — handled inside the middleware
   bot.command("start", createStartCommand(pairing));
