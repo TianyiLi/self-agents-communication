@@ -1,0 +1,65 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --notify-keyspace-events Ex
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 3
+
+  frontend-agent:
+    build: .
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./package.json:/app/package.json
+    command: ["bun", "run", "--watch", "src/index.ts"]
+    environment:
+      AGENT_ID: frontend-agent
+      AGENT_NAME: frontend-agent
+      AGENT_ROLE: 前端開發
+      AGENT_DESC: 負責 React 前端專案，擅長 UI/UX 實作和效能優化
+      AGENT_CAPS: react,typescript,css,testing
+      AGENT_PROJECT: /project/frontend-app
+      BOT_TOKEN: ${FRONTEND_BOT_TOKEN}
+      MCP_PORT: 3101
+      REDIS_URI: redis://redis:6379
+      ALLOWED_CHAT_IDS: ${ALLOWED_CHAT_IDS:-}
+    ports:
+      - "3101:3101"
+
+  backend-agent:
+    build: .
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./package.json:/app/package.json
+    command: ["bun", "run", "--watch", "src/index.ts"]
+    environment:
+      AGENT_ID: backend-agent
+      AGENT_NAME: backend-agent
+      AGENT_ROLE: 後端開發
+      AGENT_DESC: 負責 API 服務，擅長資料庫設計和系統架構
+      AGENT_CAPS: typescript,postgresql,redis,api-design
+      AGENT_PROJECT: /project/backend-api
+      BOT_TOKEN: ${BACKEND_BOT_TOKEN}
+      MCP_PORT: 3102
+      REDIS_URI: redis://redis:6379
+      ALLOWED_CHAT_IDS: ${ALLOWED_CHAT_IDS:-}
+    ports:
+      - "3102:3102"
+
+volumes:
+  redis-data:
