@@ -1,0 +1,26 @@
+{
+  "name": "grammy-bunjs-telegram-bot-template",
+  "module": "src/index.ts",
+  "description": "advance telegram bot telmplate to quick start telegram bot in ts with bunjs, grammyjs... ",
+  "type": "module",
+  "scripts": {
+    "start": "bun ./src/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@grammyjs/conversations": "^1.2.0",
+    "@grammyjs/emoji": "^1.2.0",
+    "@grammyjs/hydrate": "^1.4.1",
+    "@grammyjs/parse-mode": "^1.10.0",
+    "@grammyjs/storage-file": "^2.4.2",
+    "@grammyjs/storage-free": "^2.4.2",
+    "axios": "^1.7.9",
+    "consola": "^3.3.3",
+    "grammy": "1.30.0"
+  }
+}
