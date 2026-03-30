@@ -1,155 +1,213 @@
 # Self-Agents Communication
 
-A Docker-based multi-agent communication system where each agent runs an independent Telegram bot + MCP server, connected via Redis Streams. Any MCP-compatible AI client (Claude Code, Gemini CLI, Cursor) can receive push notifications and interact through Telegram.
+A Docker-based multi-agent communication system where each agent runs an independent Telegram bot + MCP server, connected via Redis Streams. Any MCP-compatible AI client (Claude Code, Gemini CLI, Cursor) can interact through Telegram. Claude Code additionally supports real-time push notifications via Channels.
 
 ## Architecture Overview
 
 ```
-                    ┌─────────────┐
-                    │   Redis     │
-                    │  Streams    │
-                    └──────┬──────┘
-                           │
-              ┌────────────┼────────────┐
-              │            │            │
-        ┌─────┴─────┐ ┌───┴───┐ ┌─────┴─────┐
-        │ Agent A   │ │Agent B│ │ Agent C   │
-        │ Bot + MCP │ │Bot+MCP│ │ Bot + MCP │
-        └─────┬─────┘ └───┬───┘ └─────┬─────┘
-              │            │            │
-        ┌─────┴─────┐ ┌───┴───┐ ┌─────┴─────┐
-        │ Telegram  │ │MCP SSE│ │ Telegram  │
-        │ Chat      │ │Client │ │ Chat      │
-        └───────────┘ └───────┘ └───────────┘
+┌─────────── Docker Compose ───────────┐
+│                                      │
+│  ┌─────────┐    ┌────────────────┐   │
+│  │  Redis   │    │  Agent A       │   │
+│  │ Streams  │◄──▶│  TG Bot + MCP  │   │
+│  └────┬─────┘    └───────┬────────┘   │
+│       │                  │ SSE :3101  │
+└───────┼──────────────────┼────────────┘
+        │                  │
+        │   ┌──────────────┼──────────────┐
+        │   │     MCP Client (any)        │
+        │   │     Tools: reply, publish,  │
+        │   │     subscribe, list_agents  │
+        │   └─────────────────────────────┘
+        │
+        │   ┌─────────────────────────────┐
+        │   │   Claude Code only          │
+        └──▶│   channel.ts (stdio)        │
+            │   Push → <channel> tags     │
+            │   Auto-triggers AI response │
+            └─────────────────────────────┘
 ```
 
-Each agent is a single Bun process running:
-- **Grammy.js Telegram bot** for human interaction
-- **MCP SSE server** for AI agent interface
-- **Redis Streams** consumer for cross-agent messaging
+**Two connection modes:**
+- **SSE (tools)** — Any MCP client connects via HTTP. Call tools to reply, publish, subscribe, etc.
+- **stdio (channel push)** — Claude Code only. Receives `<channel>` push notifications that trigger automatic AI responses.
 
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- [Bun](https://bun.sh) (for local development)
-- Redis (provided via Docker Compose)
+- [Bun](https://bun.sh) (for local development and channel server)
 - Telegram Bot Token(s) from [@BotFather](https://t.me/BotFather)
 
 ## Quick Start
 
-### 1. Clone and configure
+### 1. Configure
 
 ```bash
 cp .env.example .env
-# Edit .env with your bot tokens and agent config
+# Edit .env — add your bot tokens
 ```
 
-### 2. Start with Docker Compose
+### 2. Start services
 
 ```bash
 # Start Redis + all agents
 docker compose up -d
 
 # View logs
-docker compose logs -f
+docker compose logs -f frontend-agent
 
 # Stop everything
 docker compose down
 ```
 
-### 3. Local development (without Docker)
+### 3. Connect MCP client
 
-```bash
-# Start Redis separately
-docker compose up redis -d
-
-# Install dependencies
-bun install
-
-# Run with hot reload
-bun dev
-```
+See [MCP Client Setup](#mcp-client-setup) below.
 
 ## MCP Client Setup
 
-After starting the agents, connect your MCP-compatible AI client:
+### Any MCP Client (Tools only)
 
-### Claude Code
+Connect to the SSE endpoint for tools (reply, publish, subscribe, etc.):
 
+**Claude Code:**
 ```bash
-# Add MCP server connection
 claude mcp add agent-comm --transport sse http://localhost:3101/sse
-
-# Verify
-claude mcp list
 ```
 
-### Gemini CLI
-
-Add to `~/.gemini/settings.json`:
-
+**Gemini CLI** — add to `~/.gemini/settings.json`:
 ```json
 {
   "mcpServers": {
-    "agent-comm": {
-      "uri": "http://localhost:3101/sse"
-    }
+    "agent-comm": { "uri": "http://localhost:3101/sse" }
   }
 }
 ```
 
-### Cursor
+**Cursor:**
+1. Settings > MCP Servers > Add SSE Server
+2. URL: `http://localhost:3101/sse`
 
-1. Open Settings > MCP Servers
-2. Click "Add SSE Server"
-3. URL: `http://localhost:3101/sse`
+### Claude Code with Channel Push (Recommended)
+
+For real-time push notifications that trigger automatic AI responses, add both the SSE tools server **and** the stdio channel server:
+
+```bash
+# 1. Add SSE tools server (provides reply, publish, subscribe, etc.)
+claude mcp add agent-comm --transport sse http://localhost:3101/sse
+
+# 2. Add stdio channel server (provides push notifications)
+claude mcp add agent-channel \
+  -e AGENT_ID=frontend-agent \
+  -e REDIS_URI=redis://localhost:6379 \
+  -- bun /absolute/path/to/src/channel.ts
+
+# 3. Start Claude Code with channels enabled
+claude --channels server:agent-channel
+```
+
+When a Telegram message arrives, Claude receives it as:
+
+```xml
+<channel source="inbox" from="user" from_name="Paul" must_reply="true" chat_id="963665490">
+@frontend_bot run the build
+</channel>
+```
+
+Claude automatically decides whether to respond based on `must_reply` and its role, then uses the `reply` tool (from the SSE server) to send the response back to Telegram.
+
+#### Channel sources
+
+| Source | Meaning |
+|--------|---------|
+| `inbox` | Direct Telegram message or @mention |
+| `channel:{name}` | Cross-agent broadcast (e.g. `channel:api-updates`) |
+| `system` | Agent online/offline events |
+
+#### Channel meta fields
+
+| Field | Description |
+|-------|-------------|
+| `from` | Sender: `"user"` or agent ID |
+| `from_name` | Display name (e.g. `"Paul"`, `"backend-agent"`) |
+| `type` | Message type: `command`, `text`, `code`, `result`, `status`, `system` |
+| `must_reply` | `"true"` if @mentioned, `"false"` for general messages |
+| `chat_id` | Telegram chat ID (use with `reply` tool) |
+| `message_id` | Telegram message ID (for threaded replies) |
 
 ## Pairing Flow
 
-Each agent requires a dual-handshake pairing to bind a Telegram user to an MCP client:
+Each agent requires a dual-handshake pairing to bind a Telegram user to an MCP session:
 
-1. Send `/start` to your agent's Telegram bot
-2. Receive a 6-digit pairing code
-3. Connect your MCP client to the agent's SSE endpoint
-4. Call the `agent_pair` tool with the code
-5. Bot confirms pairing success
+```
+You (Telegram)              Bot / Redis              MCP Client
+     │                          │                        │
+     │  /start                  │                        │
+     │─────────────────────────▶│                        │
+     │                          │                        │
+     │  "Pairing code: 482901"  │                        │
+     │◀─────────────────────────│                        │
+     │                          │                        │
+     │                          │  agent_pair("482901")  │
+     │                          │◀───────────────────────│
+     │                          │                        │
+     │  "Paired ✓"              │  { status: "paired" }  │
+     │◀─────────────────────────│───────────────────────▶│
+```
 
-After pairing, the MCP client will receive push notifications for all Telegram messages, and can reply through the `reply` tool.
+- Code expires in 120 seconds
+- Already paired? Call `agent_pair("")` (empty string) to resume the session
+- Only one MCP session active per agent at a time
 
 ## Adding a New Agent
 
 1. Create a new Telegram bot via [@BotFather](https://t.me/BotFather)
-2. Add a new service in `docker-compose.yml`:
+2. Disable privacy mode: BotFather > `/setprivacy` > Disable (required for group messages)
+3. Add the bot token to `.env`:
+   ```bash
+   MY_NEW_AGENT_BOT_TOKEN=123456:ABC-DEF
+   ```
+4. Add a service in `docker-compose.yml`:
+   ```yaml
+   my-new-agent:
+     build: .
+     depends_on:
+       redis:
+         condition: service_healthy
+     restart: unless-stopped
+     volumes:
+       - ./src:/app/src
+       - ./config:/app/config
+       - ./package.json:/app/package.json
+     command: ["bun", "run", "--watch", "src/index.ts"]
+     environment:
+       AGENT_ID: my-new-agent
+       AGENT_NAME: my-new-agent
+       AGENT_ROLE: Your role description
+       AGENT_DESC: What this agent does
+       AGENT_CAPS: capability1,capability2
+       AGENT_PROJECT: /project/path
+       BOT_TOKEN: ${MY_NEW_AGENT_BOT_TOKEN}
+       MCP_PORT: 3103
+       REDIS_URI: redis://redis:6379
+     ports:
+       - "3103:3103"
+   ```
+5. Start it:
+   ```bash
+   docker compose up -d my-new-agent
+   ```
+6. Connect your MCP client and pair via Telegram `/start` + `agent_pair`
 
-```yaml
-  my-new-agent:
-    build: .
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    volumes:
-      - ./src:/app/src
-      - ./config:/app/config
-      - ./package.json:/app/package.json
-    command: ["bun", "run", "--watch", "src/index.ts"]
-    environment:
-      AGENT_ID: my-new-agent
-      AGENT_NAME: my-new-agent
-      AGENT_ROLE: Your role description
-      AGENT_DESC: What this agent does
-      AGENT_CAPS: capability1,capability2
-      AGENT_PROJECT: /project/path
-      BOT_TOKEN: ${MY_NEW_AGENT_BOT_TOKEN}
-      MCP_PORT: 3103
-      REDIS_URI: redis://redis:6379
-    ports:
-      - "3103:3103"
-```
+## Telegram Group Setup
 
-3. Add `MY_NEW_AGENT_BOT_TOKEN` to your `.env`
-4. Run `docker compose up -d my-new-agent`
-5. Pair via Telegram `/start` + MCP `agent_pair`
+Add multiple agent bots to a Telegram group for team collaboration:
+
+1. Create a group, add all agent bots
+2. Disable privacy mode for each bot (BotFather > `/setprivacy` > Disable)
+3. All bots receive all group messages:
+   - **@mention a bot** → `must_reply: true` — that agent must respond
+   - **General message** → `must_reply: false` — each agent decides based on its role
 
 ## Environment Variables
 
@@ -165,17 +223,18 @@ After pairing, the MCP client will receive push notifications for all Telegram m
 | `REDIS_URI` | Redis connection string | `redis://localhost:6379` |
 | `MCP_PORT` | MCP SSE server port | `3100` |
 | `ALLOWED_CHAT_IDS` | Comma-separated allowed Telegram chat IDs | (empty = all) |
+| `NOTIFIER_MODE` | SSE push mode: `logging`, `channel`, `auto` | `logging` |
 
 ## Available MCP Tools
 
-Once paired, the following tools are available to MCP clients:
+Once paired, the following tools are available via the SSE server:
 
 | Tool | Description |
 |---|---|
-| `agent_pair` | Verify pairing code and bind Telegram user |
+| `agent_pair` | Verify pairing code or resume existing pairing (empty string) |
 | `reply` | Send a message to the paired Telegram chat |
 | `publish` | Publish a message to a channel (fan-out to subscribers) |
-| `subscribe` | Subscribe to a channel for push notifications |
+| `subscribe` | Subscribe to a channel for real-time notifications |
 | `unsubscribe` | Unsubscribe from a channel |
 | `list_agents` | List all registered agents and their status |
 | `get_history` | Retrieve message history from any stream |
@@ -185,42 +244,46 @@ Once paired, the following tools are available to MCP clients:
 
 ```
 config/
-  index.ts                    -- Config object from env vars
+  index.ts                    — Config from env vars
 
 src/
-  index.ts                    -- Entry point: Redis, bot, MCP, heartbeat, shutdown
-  types.ts                    -- StreamMessage, AgentProfile interfaces
+  index.ts                    — Entry: Redis + Bot + MCP SSE + heartbeat + shutdown
+  channel.ts                  — Stdio channel server for Claude Code push notifications
+  types.ts                    — StreamMessage, AgentProfile interfaces
 
   services/
-    redis.ts                  -- Redis client wrapper (Streams, Hash, Set)
-    agent-registry.ts         -- Agent profile, heartbeat, discovery
-    pairing.ts                -- Dual-handshake pairing flow
+    redis.ts                  — Redis client (Streams, Hash, Set)
+    agent-registry.ts         — Agent profile, heartbeat, discovery
+    pairing.ts                — Dual-handshake pairing
 
   bot/
-    index.ts                  -- Grammy bot init
+    index.ts                  — Grammy bot init + middleware chain
     middleware/
-      pairing.ts              -- Auth middleware: check paired user
+      pairing.ts              — Auth: only paired user can interact
     commands/
-      start.ts                -- /start: generate pairing code
-      status.ts               -- /status: show agent info
-      channels.ts             -- /channels: list subscriptions
+      start.ts                — /start: generate pairing code
+      status.ts               — /status: agent info
+      channels.ts             — /channels: list subscriptions
     handlers/
-      message.ts              -- Message forwarding to inbox stream
+      message.ts              — Forward to inbox stream with must_reply flag
 
   mcp/
-    index.ts                  -- MCP SSE server init
-    push.ts                   -- Redis stream listener -> MCP notifications
+    index.ts                  — MCP SSE server (node:http + SSEServerTransport)
+    push.ts                   — Redis → SSE push loop
+    session.ts                — Single-session access control
+    notifier.ts               — Abstract notifier (TransportNotifier / ChannelNotifier)
     tools/
-      agent-pair.ts           -- Verify pairing code
-      reply.ts                -- Send Telegram message
-      publish.ts              -- Publish to channel stream
-      subscribe.ts            -- Subscribe to channel
-      unsubscribe.ts          -- Unsubscribe from channel
-      list-agents.ts          -- List all agents
-      get-history.ts          -- Read stream history
-      send-direct.ts          -- Direct message to agent
+      guard.ts                — Session guard for tool access
+      agent-pair.ts           — Pairing + session claim
+      reply.ts                — Send Telegram message
+      publish.ts              — Publish to channel stream
+      subscribe.ts            — Subscribe to channel
+      unsubscribe.ts          — Unsubscribe
+      list-agents.ts          — List agents
+      get-history.ts          — Read stream history
+      send-direct.ts          — Direct message to agent
 
-Dockerfile                    -- oven/bun:1-alpine container
-docker-compose.yml            -- Redis + agent services
-.env.example                  -- Environment variable template
+Dockerfile                    — oven/bun:1-alpine
+docker-compose.yml            — Redis + agent services
+.env.example                  — Template
 ```
