@@ -18,25 +18,16 @@ install: build
 uninstall:
 	@bash scripts/uninstall.sh
 
-# === Claude Code MCP ===
+# === Claude Code MCP (delegated to binary) ===
 
-mcp-setup:
-	@echo "Adding agent-comm (SSE tools)..."
-	claude mcp add agent-comm --transport sse http://localhost:3101/sse || true
-	@echo ""
-	@echo "Adding agent-channel (stdio push)..."
-	claude mcp add agent-channel \
-		-e AGENT_ID=$(or $(AGENT_ID),frontend-agent) \
-		-e REDIS_URI=$(or $(REDIS_URI),redis://localhost:6379) \
-		-- $(BINARY_NAME)
-	@echo ""
-	@echo "Done. Start Claude Code with:"
-	@echo "  claude --channels server:agent-channel"
+mcp-setup: install
+	$(BINARY_NAME) --mcp-setup \
+		--agent-id $(or $(AGENT_ID),frontend-agent) \
+		--redis-uri $(or $(REDIS_URI),redis://localhost:6379) \
+		$(if $(SSE_URL),--sse-url $(SSE_URL))
 
 mcp-remove:
-	claude mcp remove agent-comm || true
-	claude mcp remove agent-channel || true
-	@echo "MCP servers removed."
+	$(BINARY_NAME) --mcp-remove
 
 # === Docker ===
 
