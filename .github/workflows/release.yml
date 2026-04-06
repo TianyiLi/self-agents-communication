@@ -1,0 +1,46 @@
+name: Release Binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: bun-linux-x64
+            artifact: agent-channel-linux-x64
+            os: ubuntu-latest
+          - target: bun-linux-arm64
+            artifact: agent-channel-linux-arm64
+            os: ubuntu-latest
+          - target: bun-darwin-x64
+            artifact: agent-channel-darwin-x64
+            os: macos-latest
+          - target: bun-darwin-arm64
+            artifact: agent-channel-darwin-arm64
+            os: macos-latest
+          - target: bun-windows-x64
+            artifact: agent-channel-windows-x64.exe
+            os: windows-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install
+
+      - name: Build binary
+        run: bun build src/channel.ts --compile --target=${{ matrix.target }} --outfile dist/${{ matrix.artifact }}
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ matrix.artifact }}

@@ -5,7 +5,8 @@
   "scripts": {
     "start": "bun ./src/index.ts",
     "dev": "bun --watch ./src/index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "build:channel": "bun build src/channel.ts --compile --outfile dist/agent-channel"
   },
   "devDependencies": {
     "@types/bun": "latest"

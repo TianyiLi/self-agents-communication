@@ -1,7 +1,9 @@
 PREFIX ?= /usr/local
 BINARY_NAME = agent-channel
 
-.PHONY: build install uninstall mcp-setup mcp-remove docker-up docker-down test clean
+PLATFORMS = linux-x64 linux-arm64 darwin-x64 darwin-arm64 windows-x64
+
+.PHONY: build build-all $(addprefix build-,$(PLATFORMS)) install uninstall mcp-setup mcp-remove docker-up docker-down test clean
 
 # === Build ===
 
@@ -9,6 +11,18 @@ build:
 	@mkdir -p dist
 	bun build src/channel.ts --compile --outfile dist/$(BINARY_NAME)
 	@echo "Built: dist/$(BINARY_NAME)"
+
+build-all: $(addprefix build-,$(PLATFORMS))
+	@echo "Built all platforms in dist/"
+
+define BUILD_PLATFORM
+build-$(1):
+	@mkdir -p dist
+	bun build src/channel.ts --compile --target=bun-$(1) --outfile dist/$(BINARY_NAME)-$(1)$(if $(findstring windows,$(1)),.exe)
+	@echo "Built: dist/$(BINARY_NAME)-$(1)$(if $(findstring windows,$(1)),.exe)"
+endef
+
+$(foreach p,$(PLATFORMS),$(eval $(call BUILD_PLATFORM,$(p))))
 
 # === Install / Uninstall ===
 
