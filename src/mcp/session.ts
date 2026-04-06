@@ -98,29 +98,26 @@ export class SessionManager {
   }
 
   /**
-   * Ping a transport by attempting a small write.
-   * If the connection is dead, the write will fail.
+   * Ping a transport by attempting an actual SSE write.
+   * If the connection is dead, the send will fail or timeout.
+   *
+   * HACK: SDK does not expose transport liveness. Pin @modelcontextprotocol/sdk version.
    */
   private async pingTransport(transport: SSEServerTransport): Promise<boolean> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(false), PING_TIMEOUT_MS);
-
-      try {
-        // SSEServerTransport writes to the underlying ServerResponse.
-        // If the connection is closed, this will throw or the response will be finished.
-        const res = (transport as any)._res || (transport as any).res;
-        if (res && (res.writableEnded || res.destroyed)) {
-          clearTimeout(timer);
-          resolve(false);
-          return;
-        }
-        // Connection still looks alive
-        clearTimeout(timer);
-        resolve(true);
-      } catch {
-        clearTimeout(timer);
-        resolve(false);
-      }
-    });
+    try {
+      const result = await Promise.race([
+        transport.send({
+          jsonrpc: "2.0" as const,
+          method: "notifications/ping",
+          params: {},
+        }).then(() => true),
+        new Promise<false>((resolve) =>
+          setTimeout(() => resolve(false), PING_TIMEOUT_MS)
+        ),
+      ]);
+      return result;
+    } catch {
+      return false;
+    }
   }
 }

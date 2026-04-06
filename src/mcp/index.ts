@@ -78,10 +78,15 @@ export async function createMcpServer(
           // Already closed
         }
         sessionManager.removeTransport(oldId);
-        // Reset McpServer's internal transport so connect() works again
-        // Don't call server.close() — that kills the Server and breaks push loop
-        (mcpServer as any)._transport = undefined;
-        (mcpServer.server as any)._transport = undefined;
+        // HACK: SDK lacks resetTransport(). Pin @modelcontextprotocol/sdk to exact version.
+        // Reset McpServer's internal transport so connect() works again.
+        // Don't call server.close() — that kills the Server and breaks push loop.
+        try {
+          (mcpServer as any)._transport = undefined;
+          (mcpServer.server as any)._transport = undefined;
+        } catch (err) {
+          consola.warn("Failed to reset MCP transport (SDK internals may have changed):", err);
+        }
         activeTransport = null;
       }
 
