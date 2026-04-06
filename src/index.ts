@@ -78,7 +78,7 @@ async function main() {
     consola.info("Shutting down...");
     clearInterval(heartbeatInterval);
     pushLoop.stop();
-    bot.stop();
+    await bot.stop();
     await registry.goOffline("shutdown");
     await redis.disconnect();
     consola.success("Shutdown complete");

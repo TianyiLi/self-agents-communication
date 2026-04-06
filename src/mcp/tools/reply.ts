@@ -28,7 +28,7 @@ export function registerReplyTool(server: McpServer, bot: Bot, sessionManager: S
       if (denied) return denied;
       try {
         await bot.api.sendMessage(chat_id, content, {
-          parse_mode: "Markdown",
+          parse_mode: "MarkdownV2",
           ...(reply_to_message_id
             ? { reply_parameters: { message_id: parseInt(reply_to_message_id) } }
             : {}),

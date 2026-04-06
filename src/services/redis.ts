@@ -5,7 +5,7 @@ export class RedisService {
 
   async connect(uri: string) {
     this.client = createClient({ url: uri });
-    this.client.on("error", (err) => console.error("Redis error:", err));
+    this.client.on("error", (err) => process.stderr.write(`Redis error: ${err}\n`));
     await this.client.connect();
   }
 
@@ -20,7 +20,7 @@ export class RedisService {
     fields: Record<string, string>,
     maxlen?: number
   ): Promise<string> {
-    const args: any = {};
+    const args: Record<string, { strategy: "MAXLEN"; strategyModifier: "~"; threshold: number }> = {};
     if (maxlen) {
       args.TRIM = { strategy: "MAXLEN" as const, strategyModifier: "~" as const, threshold: maxlen };
     }
@@ -50,10 +50,11 @@ export class RedisService {
     consumerName: string,
     streamKeys: string[],
     count: number,
-    block?: number
+    block?: number,
+    id: string = ">"
   ) {
-    const streams = streamKeys.map((key) => ({ key, id: ">" }));
-    const opts: any = { COUNT: count };
+    const streams = streamKeys.map((key) => ({ key, id }));
+    const opts: Record<string, number> = { COUNT: count };
     if (block !== undefined) opts.BLOCK = block;
 
     const raw = await this.client.xReadGroup(groupName, consumerName, streams, opts);

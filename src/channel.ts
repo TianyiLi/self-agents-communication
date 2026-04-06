@@ -111,15 +111,35 @@ async function start() {
 }
 
 async function listen() {
-  const groupName = `agent:${AGENT_ID}`;
+  // Use distinct group name from PushLoop (agent:{id}) to enable fan-out delivery
+  const groupName = `channel:agent:${AGENT_ID}`;
+  const createdGroups = new Set<string>();
 
   const fixedStreams = [
     `stream:agent:${AGENT_ID}:inbox`,
     "stream:system:introductions",
   ];
 
-  for (const stream of fixedStreams) {
+  async function ensureGroup(stream: string) {
+    if (createdGroups.has(stream)) return;
     await redis.ensureConsumerGroup(stream, groupName);
+    createdGroups.add(stream);
+  }
+
+  for (const stream of fixedStreams) {
+    await ensureGroup(stream);
+  }
+
+  // Recover pending messages from prior crash (ID "0" returns unacknowledged)
+  try {
+    const pending = await redis.xreadgroup(groupName, AGENT_ID, fixedStreams, 100, undefined, "0");
+    for (const result of pending) {
+      for (const msg of result.messages) {
+        await redis.xack(result.streamKey, groupName, [msg.id]);
+      }
+    }
+  } catch {
+    // First run — no pending messages
   }
 
   while (true) {
@@ -129,7 +149,7 @@ async function listen() {
       const allStreams = [...fixedStreams, ...channelStreams];
 
       for (const stream of channelStreams) {
-        await redis.ensureConsumerGroup(stream, groupName);
+        await ensureGroup(stream);
       }
 
       const results = await redis.xreadgroup(
@@ -168,7 +188,8 @@ async function listen() {
           await redis.xack(result.streamKey, groupName, [msg.id]);
         }
       }
-    } catch {
+    } catch (err) {
+      process.stderr.write(`Channel listen error: ${err}\n`);
       await Bun.sleep(1000);
     }
   }

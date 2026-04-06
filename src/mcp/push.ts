@@ -19,6 +19,7 @@ import consola from "consola";
 export class PushLoop {
   private running = false;
   private subscribedChannels = new Set<string>();
+  private createdGroups = new Set<string>();
   private redis: RedisService;
   private notifier: Notifier;
   private sessionManager: SessionManager;
@@ -29,6 +30,12 @@ export class PushLoop {
     this.notifier = notifier;
     this.sessionManager = sessionManager;
     this.agentId = Config.agentId;
+  }
+
+  private async ensureGroup(stream: string) {
+    if (this.createdGroups.has(stream)) return;
+    await this.redis.ensureConsumerGroup(stream, `agent:${this.agentId}`);
+    this.createdGroups.add(stream);
   }
 
   addChannel(channel: string) {
@@ -51,7 +58,21 @@ export class PushLoop {
       "stream:system:introductions",
     ];
     for (const stream of fixedStreams) {
-      await this.redis.ensureConsumerGroup(stream, `agent:${this.agentId}`);
+      await this.ensureGroup(stream);
+    }
+
+    // Recover pending messages from prior crash
+    try {
+      const pending = await this.redis.xreadgroup(
+        `agent:${this.agentId}`, this.agentId, fixedStreams, 100, undefined, "0"
+      );
+      for (const result of pending) {
+        for (const msg of result.messages) {
+          await this.redis.xack(result.streamKey, `agent:${this.agentId}`, [msg.id]);
+        }
+      }
+    } catch {
+      // First run — no pending messages
     }
 
     this.listen();
@@ -71,7 +92,7 @@ export class PushLoop {
         ];
 
         for (const key of streamKeys) {
-          await this.redis.ensureConsumerGroup(key, `agent:${this.agentId}`);
+          await this.ensureGroup(key);
         }
 
         const results = await this.redis.xreadgroup(
@@ -98,8 +119,8 @@ export class PushLoop {
                     message_id: msg.message.message_id || "",
                   },
                 });
-              } catch {
-                // Connection not ready
+              } catch (err) {
+                consola.warn("Notification send failed:", err);
               }
             }
             await this.redis.xack(
