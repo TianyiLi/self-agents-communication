@@ -22,19 +22,26 @@ export function registerSendDirectTool(server: McpServer, redis: RedisService, s
         "Message type: 'text' for general messages, 'code' for code snippets, " +
           "'result' for task outputs, 'status' for progress/status updates"
       ),
+      quote_content: z.string().optional().describe("Text being responded to, for context"),
     },
-    async ({ target_agent_id, content, type }, extra) => {
+    async ({ target_agent_id, content, type, quote_content }, extra) => {
       const denied = guardSession(extra.sessionId ?? "", sessionManager);
       if (denied) return denied;
+      const fields: Record<string, string> = {
+        from: Config.agentId,
+        from_name: Config.agentName,
+        type,
+        content,
+        is_bot: "true",
+        timestamp: Date.now().toString(),
+      };
+      if (quote_content) {
+        fields.reply_to_content = quote_content;
+        fields.reply_to_from = Config.agentName;
+      }
       const msgId = await redis.xadd(
         `stream:agent:${target_agent_id}:inbox`,
-        {
-          from: Config.agentId,
-          from_name: Config.agentName,
-          type,
-          content,
-          timestamp: Date.now().toString(),
-        },
+        fields,
         1000
       );
       return {

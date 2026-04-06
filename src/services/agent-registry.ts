@@ -1,5 +1,6 @@
 import type { RedisService } from "./redis";
 import type { AgentProfile } from "../types";
+import { Config } from "@config/index";
 
 export class AgentRegistry {
   constructor(
@@ -21,6 +22,7 @@ export class AgentRegistry {
       capabilities: JSON.stringify(this.profile.capabilities),
       project: this.profile.project,
       bot_username: this.profile.bot_username,
+      mcp_port: String(Config.mcpPort || ""),
     });
     await this.redis.sadd("idx:agents:registry", this.profile.agent_id);
     await this.redis.sadd("idx:agents:online", this.profile.agent_id);

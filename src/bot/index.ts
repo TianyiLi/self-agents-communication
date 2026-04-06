@@ -26,13 +26,28 @@ export async function createBot(
     const isGroup =
       ctx.chat?.type === "group" || ctx.chat?.type === "supergroup";
     if (isGroup) {
+      // Phase 4b: ALLOWED_CHAT_IDS guard for group logging
+      if (
+        Config.allowedChatIds.length > 0 &&
+        !Config.allowedChatIds.includes(ctx.chat!.id.toString())
+      ) {
+        return next();
+      }
+      const fields: Record<string, string> = {
+        from_name: ctx.from?.first_name || "unknown",
+        content: ctx.message?.text || "",
+        user_id: ctx.from?.id.toString() || "",
+        username: ctx.from?.username || "",
+        is_bot: ctx.from?.is_bot ? "true" : "false",
+        timestamp: Date.now().toString(),
+      };
+      if (ctx.message?.reply_to_message) {
+        fields.reply_to_content = ctx.message.reply_to_message.text || "";
+        fields.reply_to_from = ctx.message.reply_to_message.from?.first_name || "";
+      }
       await redis.xadd(
         `stream:group:${ctx.chat!.id}`,
-        {
-          from_name: ctx.from?.first_name || "unknown",
-          content: ctx.message?.text || "",
-          timestamp: Date.now().toString(),
-        },
+        fields,
         2000
       );
     }
