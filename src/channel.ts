@@ -85,6 +85,9 @@ function getArg(flag: string): string | undefined {
 
 const AGENT_ID = Bun.env.AGENT_ID || "default-agent";
 const AGENT_NAME = Bun.env.AGENT_NAME || AGENT_ID;
+const AGENT_ROLE = Bun.env.AGENT_ROLE || "general";
+const AGENT_DESC = Bun.env.AGENT_DESC || "";
+const AGENT_CAPS = Bun.env.AGENT_CAPS || "";
 const REDIS_URI = Bun.env.REDIS_URI || "redis://localhost:6379";
 const LOCAL_MEDIA_DIR = path.join(os.tmpdir(), "agent-channel-media", AGENT_ID);
 
@@ -95,14 +98,30 @@ const server = new Server(
       experimental: { "claude/channel": {} },
     },
     instructions: [
-      `You are ${AGENT_NAME}. Messages arrive as <channel> tags from Telegram users and other agents.`,
-      `When source="inbox", it's a direct message or Telegram command for you.`,
-      `When source="channel", it's a cross-agent broadcast you subscribed to.`,
-      `When source="system", it's an agent online/offline event.`,
-      `If must_reply="true", you MUST respond using the agent-comm MCP tools (reply, publish, etc).`,
-      `If must_reply="false", decide based on your role whether to respond.`,
-      `If meta.media_paths is non-empty, it contains comma-separated local file paths for images or documents attached to the message. Use the Read tool on each path to view them.`,
-    ].join("\n"),
+      `You are ${AGENT_NAME} (agent_id: ${AGENT_ID}).`,
+      `Role: ${AGENT_ROLE}. ${AGENT_DESC}`,
+      AGENT_CAPS ? `Capabilities: ${AGENT_CAPS}` : "",
+      ``,
+      `Messages arrive as <channel> tags from Telegram users and other agents.`,
+      `- source="inbox": direct message or Telegram command for you`,
+      `- source="channel:<name>": cross-agent broadcast you subscribed to (e.g. "team")`,
+      `- source="system": agent online/offline event`,
+      ``,
+      `## Response rules`,
+      `- meta.must_reply="true" → You MUST respond using agent-comm tools (reply, publish, send_direct).`,
+      `- meta.must_reply="false" → Decide based on YOUR ROLE whether to respond. Stay silent if the topic is outside your expertise or already concluded.`,
+      `- If meta.from="${AGENT_ID}", IGNORE — that is your own message echoing back (should be filtered, but double-check).`,
+      `- If meta.is_bot="true", the sender is another agent. Keep exchanges focused and concise. Do not respond to pleasantries or acknowledgments — let the conversation end.`,
+      ``,
+      `## Inter-agent communication`,
+      `- Use send_direct to ask a specific agent a question or delegate work. Pass quote_content when referencing a previous message.`,
+      `- Use publish to "team" channel (auto-subscribed) to broadcast status/results visible to all agents.`,
+      `- Use reply to send results back to the Telegram user via chat_id from meta.`,
+      `- Call list_agents first to discover who is available and their roles before send_direct.`,
+      ``,
+      `## Media`,
+      `- If meta.media_paths is non-empty, it contains comma-separated local file paths. Use the Read tool on each path to view images/documents.`,
+    ].filter(Boolean).join("\n"),
   }
 );
 
@@ -111,6 +130,14 @@ const redis = new RedisService();
 async function start() {
   await redis.connect(REDIS_URI);
   await fs.mkdir(LOCAL_MEDIA_DIR, { recursive: true });
+
+  // Auto-subscribe to "team" broadcast channel so all agents share a common bus
+  try {
+    await redis.sadd(`agent:${AGENT_ID}:subscriptions`, "team");
+  } catch (err) {
+    process.stderr.write(`Failed to auto-subscribe to team: ${err}\n`);
+  }
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   listen();
@@ -224,6 +251,12 @@ async function listen() {
 
       for (const result of results) {
         for (const msg of result.messages) {
+          // Skip own messages to prevent echo loops
+          if (msg.message.from === AGENT_ID) {
+            await redis.xack(result.streamKey, groupName, [msg.id]);
+            continue;
+          }
+
           let source = "inbox";
           if (result.streamKey.startsWith("stream:channel:")) {
             source = "channel:" + result.streamKey.replace("stream:channel:", "");
@@ -252,6 +285,7 @@ async function listen() {
                 must_reply: msg.message.must_reply || "false",
                 chat_id: msg.message.chat_id || "",
                 message_id: msg.message.message_id || "",
+                is_bot: msg.message.is_bot || "false",
                 media_paths: mediaPaths.length > 0 ? mediaPaths.join(",") : "",
               },
             },

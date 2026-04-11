@@ -105,6 +105,15 @@ export class PushLoop {
 
         for (const result of results) {
           for (const msg of result.messages) {
+            // Skip own messages to prevent echo loops
+            if (msg.message.from === this.agentId) {
+              await this.redis.xack(
+                result.streamKey,
+                `agent:${this.agentId}`,
+                [msg.id]
+              );
+              continue;
+            }
             if (this.sessionManager.hasActiveSession()) {
               try {
                 await this.notifier.send({
@@ -117,6 +126,8 @@ export class PushLoop {
                     must_reply: msg.message.must_reply || "false",
                     chat_id: msg.message.chat_id || "",
                     message_id: msg.message.message_id || "",
+                    is_bot: msg.message.is_bot || "false",
+                    media: msg.message.media || "",
                   },
                 });
               } catch (err) {
