@@ -1,8 +1,11 @@
 import http from "node:http";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { Config } from "@config/index";
 import type { RedisService } from "../services/redis";
+import { getMedia, isValidMediaId } from "../services/media";
 import type { AgentRegistry } from "../services/agent-registry";
 import type { PairingService } from "../services/pairing";
 import type { Bot } from "grammy";
@@ -103,6 +106,35 @@ export async function createMcpServer(
       };
 
       await mcpServer.connect(transport);
+      return;
+    }
+
+    // Media endpoint — serves files referenced by stream messages
+    if (url.pathname.startsWith("/media/") && req.method === "GET") {
+      const id = url.pathname.slice("/media/".length);
+      if (!isValidMediaId(id)) {
+        res.writeHead(400);
+        res.end("Invalid media id");
+        return;
+      }
+      const record = await getMedia(redis, id);
+      if (!record) {
+        res.writeHead(404);
+        res.end("Media not found");
+        return;
+      }
+      try {
+        const s = await stat(record.path);
+        res.writeHead(200, {
+          "Content-Type": record.mime,
+          "Content-Length": s.size,
+          "Content-Disposition": `inline; filename="${record.filename}"`,
+        });
+        createReadStream(record.path).pipe(res);
+      } catch {
+        res.writeHead(404);
+        res.end("File missing");
+      }
       return;
     }
 

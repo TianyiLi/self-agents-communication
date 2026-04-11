@@ -2,6 +2,9 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { RedisService } from "./services/redis";
 import { execSync } from "node:child_process";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import os from "node:os";
 
 // --- CLI commands ---
 
@@ -83,6 +86,7 @@ function getArg(flag: string): string | undefined {
 const AGENT_ID = Bun.env.AGENT_ID || "default-agent";
 const AGENT_NAME = Bun.env.AGENT_NAME || AGENT_ID;
 const REDIS_URI = Bun.env.REDIS_URI || "redis://localhost:6379";
+const LOCAL_MEDIA_DIR = path.join(os.tmpdir(), "agent-channel-media", AGENT_ID);
 
 const server = new Server(
   { name: `agent-channel-${AGENT_ID}`, version: "1.0.0" },
@@ -97,6 +101,7 @@ const server = new Server(
       `When source="system", it's an agent online/offline event.`,
       `If must_reply="true", you MUST respond using the agent-comm MCP tools (reply, publish, etc).`,
       `If must_reply="false", decide based on your role whether to respond.`,
+      `If meta.media_paths is non-empty, it contains comma-separated local file paths for images or documents attached to the message. Use the Read tool on each path to view them.`,
     ].join("\n"),
   }
 );
@@ -105,9 +110,66 @@ const redis = new RedisService();
 
 async function start() {
   await redis.connect(REDIS_URI);
+  await fs.mkdir(LOCAL_MEDIA_DIR, { recursive: true });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   listen();
+}
+
+interface MediaDescriptor {
+  id: string;
+  filename: string;
+  mime: string;
+}
+
+/** Resolve an agent's MCP port from its Redis profile. */
+async function resolveAgentPort(fromAgentId: string): Promise<string | null> {
+  try {
+    const port = await redis.hget(`agent:${fromAgentId}:profile`, "mcp_port");
+    return port || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Download media files referenced in a message to a local temp dir. Returns local paths. */
+async function downloadMedia(
+  fromAgentId: string,
+  mediaJson: string
+): Promise<string[]> {
+  let descriptors: MediaDescriptor[];
+  try {
+    descriptors = JSON.parse(mediaJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(descriptors) || descriptors.length === 0) return [];
+
+  const port = await resolveAgentPort(fromAgentId);
+  if (!port) {
+    process.stderr.write(`Cannot resolve port for agent ${fromAgentId}\n`);
+    return [];
+  }
+
+  const paths: string[] = [];
+  for (const desc of descriptors) {
+    try {
+      const url = `http://localhost:${port}/media/${desc.id}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        process.stderr.write(`Media fetch failed: ${url} (${res.status})\n`);
+        continue;
+      }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const ext = path.extname(desc.filename) || "";
+      const localPath = path.join(LOCAL_MEDIA_DIR, `${desc.id}${ext}`);
+      await fs.writeFile(localPath, buffer);
+      paths.push(localPath);
+    } catch (err) {
+      process.stderr.write(`Media download error: ${err}\n`);
+    }
+  }
+  return paths;
 }
 
 async function listen() {
@@ -169,6 +231,15 @@ async function listen() {
             source = "system";
           }
 
+          // Download media if referenced
+          let mediaPaths: string[] = [];
+          if (msg.message.media) {
+            mediaPaths = await downloadMedia(
+              msg.message.from || AGENT_ID,
+              msg.message.media
+            );
+          }
+
           await server.notification({
             method: "notifications/claude/channel",
             params: {
@@ -181,6 +252,7 @@ async function listen() {
                 must_reply: msg.message.must_reply || "false",
                 chat_id: msg.message.chat_id || "",
                 message_id: msg.message.message_id || "",
+                media_paths: mediaPaths.length > 0 ? mediaPaths.join(",") : "",
               },
             },
           });

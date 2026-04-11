@@ -5,6 +5,7 @@ import { AgentRegistry } from "./services/agent-registry";
 import { PairingService } from "./services/pairing";
 import { createBot } from "./bot/index";
 import { createMcpServer } from "./mcp/index";
+import { cleanupStaleFiles, ensureMediaDir } from "./services/media";
 import type { AgentProfile } from "./types";
 
 async function main() {
@@ -51,6 +52,17 @@ async function main() {
     }
   }, 30_000);
 
+  // 6b. Media cleanup — delete files older than 1 hour every 15 minutes
+  await ensureMediaDir();
+  const mediaCleanupInterval = setInterval(async () => {
+    try {
+      const deleted = await cleanupStaleFiles(3600 * 1000);
+      if (deleted > 0) consola.info(`Media cleanup: removed ${deleted} stale files`);
+    } catch (err) {
+      consola.error("Media cleanup failed:", err);
+    }
+  }, 15 * 60_000);
+
   // 7. Start bot polling (with retry for getUpdates conflict)
   const startBot = async (retries = 3) => {
     for (let i = 0; i < retries; i++) {
@@ -77,6 +89,7 @@ async function main() {
   const shutdown = async () => {
     consola.info("Shutting down...");
     clearInterval(heartbeatInterval);
+    clearInterval(mediaCleanupInterval);
     pushLoop.stop();
     await bot.stop();
     await registry.goOffline("shutdown");

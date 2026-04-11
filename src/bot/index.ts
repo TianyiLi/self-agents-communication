@@ -22,7 +22,7 @@ export async function createBot(
   // Group context logging — runs BEFORE pairing middleware
   // so ALL group messages are logged regardless of sender
   const me = await bot.api.getMe();
-  bot.on("message:text", async (ctx, next) => {
+  bot.on("message", async (ctx, next) => {
     const isGroup =
       ctx.chat?.type === "group" || ctx.chat?.type === "supergroup";
     if (isGroup) {
@@ -33,9 +33,15 @@ export async function createBot(
       ) {
         return next();
       }
+      const content =
+        ctx.message?.text || ctx.message?.caption || "";
+      // Skip messages with no textual content and no media
+      const hasMedia = !!(ctx.message?.photo || ctx.message?.document);
+      if (!content && !hasMedia) return next();
+
       const fields: Record<string, string> = {
         from_name: ctx.from?.first_name || "unknown",
-        content: ctx.message?.text || "",
+        content,
         user_id: ctx.from?.id.toString() || "",
         username: ctx.from?.username || "",
         is_bot: ctx.from?.is_bot ? "true" : "false",
@@ -44,6 +50,9 @@ export async function createBot(
       if (ctx.message?.reply_to_message) {
         fields.reply_to_content = ctx.message.reply_to_message.text || "";
         fields.reply_to_from = ctx.message.reply_to_message.from?.first_name || "";
+      }
+      if (hasMedia) {
+        fields.has_media = "true";
       }
       await redis.xadd(
         `stream:group:${ctx.chat!.id}`,
@@ -62,7 +71,11 @@ export async function createBot(
   bot.command("channels", createChannelsCommand(registry));
 
   // General message handler (only reached by paired users)
-  bot.on("message:text", createMessageHandler(redis, me.username));
+  // Fires for text, photo, and document messages
+  const handler = createMessageHandler(redis, me.username);
+  bot.on("message:text", handler);
+  bot.on("message:photo", handler);
+  bot.on("message:document", handler);
 
   return { bot, botUsername: me.username };
 }
