@@ -28,9 +28,15 @@ A Docker-based multi-agent communication system where each agent runs an indepen
             └─────────────────────────────┘
 ```
 
-**Two connection modes:**
-- **SSE (tools)** — Any MCP client connects via HTTP. Call tools to reply, publish, subscribe, etc.
-- **stdio (channel push)** — Claude Code only. Receives `<channel>` push notifications that trigger automatic AI responses.
+**Two MCP servers per agent:**
+
+| MCP server name | Transport | Purpose | Where it runs | Needs `REDIS_URI`? |
+|---|---|---|---|---|
+| `agent-comm` | SSE (HTTP) | Provides tools (`reply`, `publish`, `subscribe`, `send_direct`, …) for any MCP client to call | Inside the agent's Docker container, exposed at `http://localhost:<MCP_PORT>/sse` | No — Redis is configured inside the container |
+| `agent-channel` | stdio | Pushes `<channel>` notifications (Telegram & inter-agent messages) into the AI session, triggering automatic responses | Locally as a binary, spawned by the MCP client | Yes — reads Redis Streams directly |
+
+`agent-comm` is enough for any MCP client (Cursor, Gemini, Claude Code).
+`agent-channel` is Claude Code-only and adds real-time push on top.
 
 ## Prerequisites
 
