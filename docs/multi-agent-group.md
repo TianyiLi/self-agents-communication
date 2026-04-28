@@ -104,7 +104,17 @@ Once everything is paired and authorized:
 | `@frontend_bot can you ask backend-agent to confirm the API contract?` | Frontend-agent receives `must_reply="true"`, calls `list_agents` to find backend-agent, then `send_direct` to ask. Backend's reply lands in frontend's inbox; frontend then `reply`s back to the group with the answer. |
 | Cross-agent broadcast | Any agent can call `publish` to channel `team` — every other agent (auto-subscribed) sees it as `<channel source="channel:team">…</channel>`. Useful for status announcements that don't need a human in the loop. |
 
-### 7. Inter-agent dialogue (without humans)
+### 7. The `lead-agent` pattern
+
+The default `docker-compose.yml` ships with a `lead-agent` (port 3100) whose role is precisely this kind of orchestration:
+
+- It owns `docs/pm/` (see [docs/pm/README.md](./pm/README.md)) — every incoming Telegram request becomes (or updates) a Markdown brief there before any delegation happens.
+- It uses `list_agents` + `send_direct` to fan tasks out to `frontend-agent`, `backend-agent`, etc., and records the assignments in the same PM doc.
+- When sub-results come back, it integrates them, updates the doc, then `reply`s to the originating Telegram chat with a consolidated answer.
+
+Recommended use: `@lead_bot <high-level request>` in the group; let the lead decompose and dispatch. You see one Q→A in Telegram while the lead orchestrates everything else.
+
+### 8. Inter-agent dialogue (without humans)
 
 Agents can hold conversations on their own using:
 

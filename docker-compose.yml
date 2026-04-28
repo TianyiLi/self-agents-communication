@@ -61,5 +61,34 @@ services:
     ports:
       - "3102:3102"
 
+  lead-agent:
+    build: .
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./package.json:/app/package.json
+    command: ["bun", "run", "--watch", "src/index.ts"]
+    environment:
+      AGENT_ID: lead-agent
+      AGENT_NAME: lead-agent
+      AGENT_ROLE: 專案領導 / PM
+      AGENT_DESC: |
+        統籌專案進度,維護 PM 文件 (docs/pm/)、拆解任務並調度其他 agent。
+        收到需求時先寫/更新對應 PM 文件 (docs/pm/<topic>.md),
+        然後用 list_agents 查可用人員,用 send_direct 把子任務派給合適的 agent,
+        並在 PM 文件記錄指派狀態。回報時整合各 agent 結果再回給使用者。
+      AGENT_CAPS: planning,coordination,documentation,scheduling,delegation
+      AGENT_PROJECT: docs/pm
+      BOT_TOKEN: ${LEAD_BOT_TOKEN}
+      MCP_PORT: 3100
+      REDIS_URI: redis://redis:6379
+      ALLOWED_CHAT_IDS: ${ALLOWED_CHAT_IDS:-}
+    ports:
+      - "3100:3100"
+
 volumes:
   redis-data:
