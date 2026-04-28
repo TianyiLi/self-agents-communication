@@ -103,6 +103,10 @@ export class RedisService {
     return await this.client.sIsMember(key, member);
   }
 
+  async scard(key: string): Promise<number> {
+    return await this.client.sCard(key);
+  }
+
   // --- Key ---
 
   async set(key: string, value: string, ttl?: number) {

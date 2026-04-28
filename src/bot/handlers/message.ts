@@ -1,5 +1,6 @@
 import type { Context } from "grammy";
 import type { RedisService } from "../../services/redis";
+import type { AllowedChatsService } from "../../services/allowed-chats";
 import { Config } from "@config/index";
 import { saveMedia, type MediaDescriptor } from "../../services/media";
 import consola from "consola";
@@ -8,7 +9,8 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB (Telegram Bot API limit)
 
 export function createMessageHandler(
   redis: RedisService,
-  botUsername: string
+  botUsername: string,
+  allowedChats: AllowedChatsService
 ) {
   return async (ctx: Context) => {
     const text = ctx.message?.text || ctx.message?.caption || "";
@@ -19,11 +21,7 @@ export function createMessageHandler(
     // Note: group context logging happens BEFORE pairing middleware in bot/index.ts
     // This handler only runs for paired users.
 
-    // ALLOWED_CHAT_IDS check
-    if (
-      Config.allowedChatIds.length > 0 &&
-      !Config.allowedChatIds.includes(ctx.chat!.id.toString())
-    ) {
+    if (!(await allowedChats.isAllowed(ctx.chat!.id.toString()))) {
       return;
     }
 

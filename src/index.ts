@@ -3,6 +3,7 @@ import { Config } from "@config/index";
 import { RedisService } from "./services/redis";
 import { AgentRegistry } from "./services/agent-registry";
 import { PairingService } from "./services/pairing";
+import { AllowedChatsService } from "./services/allowed-chats";
 import { createBot } from "./bot/index";
 import { createMcpServer } from "./mcp/index";
 import { cleanupStaleFiles, ensureMediaDir } from "./services/media";
@@ -29,9 +30,14 @@ async function main() {
 
   const registry = new AgentRegistry(redis, profile);
   const pairing = new PairingService(redis, Config.agentId);
+  const allowedChats = new AllowedChatsService(redis, Config.agentId);
+  const seeded = await allowedChats.seedIfEmpty(Config.allowedChatIds);
+  if (seeded > 0) {
+    consola.info(`Seeded ${seeded} chat ids into Redis allowlist from env`);
+  }
 
   // 3. Start Telegram bot
-  const { bot, botUsername } = await createBot(redis, registry, pairing);
+  const { bot, botUsername } = await createBot(redis, registry, pairing, allowedChats);
   profile.bot_username = botUsername;
   consola.success(`Telegram bot ready: @${botUsername}`);
 

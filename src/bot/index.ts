@@ -3,16 +3,23 @@ import { Config } from "@config/index";
 import type { RedisService } from "../services/redis";
 import type { AgentRegistry } from "../services/agent-registry";
 import type { PairingService } from "../services/pairing";
+import type { AllowedChatsService } from "../services/allowed-chats";
 import { createPairingMiddleware } from "./middleware/pairing";
 import { createStartCommand } from "./commands/start";
 import { createStatusCommand } from "./commands/status";
 import { createChannelsCommand } from "./commands/channels";
+import {
+  createAllowHereCommand,
+  createDisallowHereCommand,
+  createAllowedCommand,
+} from "./commands/allowed";
 import { createMessageHandler } from "./handlers/message";
 
 export async function createBot(
   redis: RedisService,
   registry: AgentRegistry,
-  pairing: PairingService
+  pairing: PairingService,
+  allowedChats: AllowedChatsService
 ) {
   const bot = new Bot(Config.botToken);
 
@@ -26,11 +33,7 @@ export async function createBot(
     const isGroup =
       ctx.chat?.type === "group" || ctx.chat?.type === "supergroup";
     if (isGroup) {
-      // Phase 4b: ALLOWED_CHAT_IDS guard for group logging
-      if (
-        Config.allowedChatIds.length > 0 &&
-        !Config.allowedChatIds.includes(ctx.chat!.id.toString())
-      ) {
+      if (!(await allowedChats.isAllowed(ctx.chat!.id.toString()))) {
         return next();
       }
       const content =
@@ -69,10 +72,13 @@ export async function createBot(
   // Commands (only accessible after pairing)
   bot.command("status", createStatusCommand(registry));
   bot.command("channels", createChannelsCommand(registry));
+  bot.command("allow_here", createAllowHereCommand(allowedChats));
+  bot.command("disallow_here", createDisallowHereCommand(allowedChats));
+  bot.command("allowed", createAllowedCommand(allowedChats));
 
   // General message handler (only reached by paired users)
   // Fires for text, photo, and document messages
-  const handler = createMessageHandler(redis, me.username);
+  const handler = createMessageHandler(redis, me.username, allowedChats);
   bot.on("message:text", handler);
   bot.on("message:photo", handler);
   bot.on("message:document", handler);
