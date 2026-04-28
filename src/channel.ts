@@ -257,6 +257,10 @@ async function listen() {
             continue;
           }
 
+          const recvAt = Date.now();
+          const xaddTs = parseInt(msg.message.timestamp || "0");
+          const queueLatency = xaddTs ? recvAt - xaddTs : -1;
+
           let source = "inbox";
           if (result.streamKey.startsWith("stream:channel:")) {
             source = "channel:" + result.streamKey.replace("stream:channel:", "");
@@ -266,13 +270,16 @@ async function listen() {
 
           // Download media if referenced
           let mediaPaths: string[] = [];
+          const mediaStart = Date.now();
           if (msg.message.media) {
             mediaPaths = await downloadMedia(
               msg.message.from || AGENT_ID,
               msg.message.media
             );
           }
+          const mediaLatency = Date.now() - mediaStart;
 
+          const notifyStart = Date.now();
           await server.notification({
             method: "notifications/claude/channel",
             params: {
@@ -292,6 +299,11 @@ async function listen() {
           });
 
           await redis.xack(result.streamKey, groupName, [msg.id]);
+
+          const notifyLatency = Date.now() - notifyStart;
+          process.stderr.write(
+            `[push] stream=${source} queue=${queueLatency}ms media=${mediaLatency}ms notify=${notifyLatency}ms\n`
+          );
         }
       }
     } catch (err) {
