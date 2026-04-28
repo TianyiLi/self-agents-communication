@@ -106,7 +106,7 @@ Once everything is paired and authorized:
 
 ### 7. The `lead-agent` pattern
 
-The default `docker-compose.yml` ships with a `lead-agent` (port 3100) whose role is precisely this kind of orchestration:
+The default `docker-compose.yml` ships with a `lead-agent` (port 3103) whose role is precisely this kind of orchestration:
 
 - It owns `docs/pm/` (see [docs/pm/README.md](./pm/README.md)) — every incoming Telegram request becomes (or updates) a Markdown brief there before any delegation happens.
 - It uses `list_agents` + `send_direct` to fan tasks out to `frontend-agent`, `backend-agent`, etc., and records the assignments in the same PM doc.

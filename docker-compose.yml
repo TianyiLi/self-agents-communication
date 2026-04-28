@@ -84,11 +84,11 @@ services:
       AGENT_CAPS: planning,coordination,documentation,scheduling,delegation
       AGENT_PROJECT: docs/pm
       BOT_TOKEN: ${LEAD_BOT_TOKEN}
-      MCP_PORT: 3100
+      MCP_PORT: 3103
       REDIS_URI: redis://redis:6379
       ALLOWED_CHAT_IDS: ${ALLOWED_CHAT_IDS:-}
     ports:
-      - "3100:3100"
+      - "3103:3103"
 
 volumes:
   redis-data:
