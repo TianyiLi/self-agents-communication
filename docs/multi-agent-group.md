@@ -11,7 +11,10 @@ Prereq: read [setup.md](./setup.md) first — this doc assumes you already under
 - Group messages are delivered by Telegram to **every bot in the group simultaneously** (provided each bot has privacy mode disabled). Every bot then independently decides whether to act.
 - Routing inside a group is by `@bot_username` mention:
   - `@frontend_bot please rebuild` → only frontend-agent gets `must_reply="true"`.
-  - A bare message with no `@mention` reaches every paired bot's inbox with `must_reply="false"`; each agent decides whether to chime in based on its role.
+  - A bare message with no `@mention` reaches every authorized bot's inbox with `must_reply="false"`; each agent decides whether to chime in based on its role.
+- **Access model:**
+  - DMs to the bot are restricted to the paired user only (so random Telegram users can't talk to your agent).
+  - In an `/allow_here`'d group, **anyone in the group** can talk to the bot — the paired user's act of authorizing the group is the consent that opens it up. Use `/block` to mute specific noisy or untrusted members.
 - Agents can additionally talk to each other directly via the `send_direct` tool, or broadcast to the auto-subscribed `team` channel via `publish` — these don't depend on Telegram.
 
 ## Step-by-step
@@ -93,16 +96,30 @@ The `@<bot>` suffix isn't strictly required — every paired bot will process th
 
 Verify any time in DM: `/allowed` (per-bot, lists that agent's authorized chats).
 
+Once `/allow_here` is set, the bot accepts messages from **any group member** (not just the paired user). To mute a specific user, the paired user runs:
+
+```
+/block               # as a reply to the noisy user's message — most reliable
+/block @username     # works for users the bot has seen speak in the group
+/block 123456789     # explicit Telegram user_id
+
+/unblock <same args>
+/blocked             # DM-only — list everyone currently blocked for this agent
+```
+
+The blocklist is per-agent (Redis Set `agent:<id>:blocked_users`) — block once for each bot that should ignore the user.
+
 ### 6. Daily flow
 
 Once everything is paired and authorized:
 
-| You type in the group | What happens |
+| Sender → message in the group | What happens |
 |---|---|
-| `@backend_bot why did the migration fail?` | Only backend-agent's inbox gets `must_reply="true"`; backend Claude responds via `reply` tool. Other agents see it as `must_reply="false"` and stay quiet unless their role makes the question relevant. |
-| `release is going out at 5pm — heads up` (no mention) | Every authorized agent's inbox sees this with `must_reply="false"`. Each agent decides independently whether the topic touches its role. By default they ignore unless directly addressed. |
-| `@frontend_bot can you ask backend-agent to confirm the API contract?` | Frontend-agent receives `must_reply="true"`, calls `list_agents` to find backend-agent, then `send_direct` to ask. Backend's reply lands in frontend's inbox; frontend then `reply`s back to the group with the answer. |
-| Cross-agent broadcast | Any agent can call `publish` to channel `team` — every other agent (auto-subscribed) sees it as `<channel source="channel:team">…</channel>`. Useful for status announcements that don't need a human in the loop. |
+| Anyone (incl. teammates) → `@backend_bot why did the migration fail?` | backend-agent's inbox gets `must_reply="true"`; backend Claude responds via `reply`. Other agents see it as `must_reply="false"` and stay quiet unless their role applies. |
+| Anyone → `release is going out at 5pm` (no mention) | Every authorized agent's inbox sees `must_reply="false"`. Each agent decides independently whether the topic touches its role. |
+| Anyone → `@frontend_bot can you ask backend-agent to confirm the API contract?` | frontend-agent gets `must_reply="true"`, calls `list_agents`, then `send_direct` to backend-agent. Backend's reply lands in frontend's inbox; frontend `reply`s the consolidated answer to the group. |
+| Blocked user → anything | All bots silently ignore. No inbox write, no group-stream entry from the user (group context still includes other speakers). |
+| Cross-agent broadcast (no human) | Any agent can `publish` to channel `team`; every other agent (auto-subscribed) sees `<channel source="channel:team">…</channel>`. Useful for status announcements that don't need a human in the loop. |
 
 ### 7. The `lead-agent` pattern
 
