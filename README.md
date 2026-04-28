@@ -38,6 +38,13 @@ A Docker-based multi-agent communication system where each agent runs an indepen
 `agent-comm` is enough for any MCP client (Cursor, Gemini, Claude Code).
 `agent-channel` is Claude Code-only and adds real-time push on top.
 
+## Documentation
+
+- **[docs/setup.md](./docs/setup.md)** — full single-agent setup walkthrough, from clone to working Telegram round-trip
+- **[docs/multi-agent-group.md](./docs/multi-agent-group.md)** — multiple agents in one Telegram group, including inter-agent dialogue
+
+The Quick Start below covers the happy path; the docs go deeper on troubleshooting and group flows.
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
