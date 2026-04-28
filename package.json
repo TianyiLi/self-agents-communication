@@ -6,7 +6,10 @@
     "start": "bun ./src/index.ts",
     "dev": "bun --watch ./src/index.ts",
     "test": "bun test",
-    "build:channel": "bun build src/channel.ts --compile --outfile dist/agent-channel"
+    "typecheck": "tsc --noEmit",
+    "build": "bun build src/channel.ts --compile --outfile dist/agent-channel",
+    "install:bin": "bun scripts/install.ts",
+    "uninstall:bin": "bun scripts/uninstall.ts"
   },
   "devDependencies": {
     "@types/bun": "1.2.5"

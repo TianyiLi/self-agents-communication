@@ -25,12 +25,14 @@ endef
 $(foreach p,$(PLATFORMS),$(eval $(call BUILD_PLATFORM,$(p))))
 
 # === Install / Uninstall ===
+# Cross-platform install/uninstall is implemented in scripts/*.ts.
+# Windows users: run `bun run install:bin` / `bun run uninstall:bin` directly.
 
-install: build
-	@bash scripts/install.sh
+install:
+	@bun run install:bin
 
 uninstall:
-	@bash scripts/uninstall.sh
+	@bun run uninstall:bin
 
 # === Claude Code MCP (delegated to binary) ===
 
