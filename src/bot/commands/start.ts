@@ -13,7 +13,10 @@ export function createStartCommand(pairing: PairingService) {
     const paired = await pairing.getPairedUser();
     if (paired) {
       if (ctx.from?.id.toString() === paired) {
-        await ctx.reply("Already paired. You can start using the bot.");
+        await ctx.reply(
+          "You're already paired with this bot. " +
+            "Just keep chatting — your connected AI will pick up messages here."
+        );
       }
       return;
     }
@@ -24,9 +27,12 @@ export function createStartCommand(pairing: PairingService) {
 
     const code = await pairing.generateCode(userId);
     await ctx.reply(
-      `<b>Pairing Code:</b> <code>${code}</code>\n\n` +
-        `Use the <code>agent_pair</code> tool in your AI agent CLI to enter this code.\n` +
-        `The code expires in 120 seconds.`,
+      `<b>Pairing code:</b> <code>${code}</code>\n\n` +
+        `Go back to your AI assistant (Claude Code, Cursor, etc.) ` +
+        `and paste this code into the chat. ` +
+        `It will claim this Telegram session automatically — ` +
+        `you don't need to type any special command.\n\n` +
+        `⏱ Expires in 2 minutes.`,
       { parse_mode: "HTML" }
     );
   };
