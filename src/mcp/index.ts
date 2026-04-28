@@ -28,10 +28,39 @@ export async function createMcpServer(
   pairing: PairingService,
   bot: Bot
 ) {
-  const mcpServer = new McpServer({
-    name: `agent-comm-${Config.agentId}`,
-    version: "1.0.0",
-  });
+  const mcpServer = new McpServer(
+    {
+      name: `agent-comm-${Config.agentId}`,
+      version: "1.0.0",
+    },
+    {
+      instructions: [
+        `You are connected to agent "${Config.agentId}" (${Config.agentName}).`,
+        `Role: ${Config.agentRole}. ${Config.agentDesc}`.trim(),
+        ``,
+        `## FIRST ACTION — pairing (REQUIRED before any other tool)`,
+        `Call \`agent_pair\` immediately on connection:`,
+        `- \`agent_pair("")\` — resume an existing pairing (most common after restart).`,
+        `- \`agent_pair("<6-digit code>")\` — first-time pairing.`,
+        ``,
+        `If \`agent_pair("")\` returns \`status: "error"\` with message "Not paired yet":`,
+        `1. Tell the user to open Telegram, find the agent's bot, and send \`/start\`.`,
+        `2. Ask the user to paste the 6-digit code from the bot's reply.`,
+        `3. Call \`agent_pair("<code>")\` with that code.`,
+        `The code expires in 120 seconds and after 5 wrong attempts.`,
+        ``,
+        `Until pairing succeeds, every other tool will refuse with a session error.`,
+        ``,
+        `## Tools`,
+        `- \`reply\` — send a message back to Telegram (chat_id from channel meta).`,
+        `- \`publish\` — broadcast to a cross-agent channel (auto-subscribed: "team").`,
+        `- \`send_direct\` — DM another agent (call \`list_agents\` first to discover IDs).`,
+        `- \`subscribe\` / \`unsubscribe\` — manage channels this agent listens to.`,
+        `- \`list_agents\` — see who is online and their roles/capabilities.`,
+        `- \`get_history\` — fetch recent messages from inbox or a channel.`,
+      ].filter(Boolean).join("\n"),
+    }
+  );
 
   const sessionManager = new SessionManager();
 
