@@ -126,7 +126,27 @@ export async function createMcpServer(
       activeTransport = transport;
       sessionManager.addTransport(transport.sessionId, transport);
 
+      // Auto-resume an already-paired session on SSE (re)connect. Without
+      // this, dropped SSE connections require the client to re-issue
+      // agent_pair(""), which the AI doesn't do automatically — so push
+      // dies silently after every reconnect.
+      if (await pairing.isPaired()) {
+        await sessionManager.claimSession(transport.sessionId);
+        consola.info(`Auto-resumed paired session: ${transport.sessionId}`);
+      }
+
+      // SSE keepalive — write a comment line every 25s so idle proxies /
+      // OS layers don't drop the connection. Without this Claude Code's
+      // SSE silently dies after ~5 min of no traffic, taking the paired
+      // session with it (and reconnects don't re-pair automatically).
+      const keepalive = setInterval(() => {
+        if (!res.writableEnded) {
+          try { res.write(": keepalive\n\n"); } catch { /* socket closed */ }
+        }
+      }, 25_000);
+
       transport.onclose = () => {
+        clearInterval(keepalive);
         consola.info(`MCP client disconnected: ${transport.sessionId}`);
         sessionManager.removeTransport(transport.sessionId);
         if (activeTransport === transport) {
