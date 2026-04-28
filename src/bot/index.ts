@@ -101,7 +101,7 @@ export async function createBot(
   // General message handler — reached by paired user (DM) or any
   // non-blocked group member (in allowlisted groups).
   // Fires for text, photo, and document messages.
-  const handler = createMessageHandler(redis, me.username, allowedChats);
+  const handler = createMessageHandler(redis, me.username);
   bot.on("message:text", handler);
   bot.on("message:photo", handler);
   bot.on("message:document", handler);

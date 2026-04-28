@@ -1,6 +1,5 @@
 import type { Context } from "grammy";
 import type { RedisService } from "../../services/redis";
-import type { AllowedChatsService } from "../../services/allowed-chats";
 import { Config } from "@config/index";
 import { saveMedia, type MediaDescriptor } from "../../services/media";
 import consola from "consola";
@@ -9,8 +8,7 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB (Telegram Bot API limit)
 
 export function createMessageHandler(
   redis: RedisService,
-  botUsername: string,
-  allowedChats: AllowedChatsService
+  botUsername: string
 ) {
   return async (ctx: Context) => {
     const text = ctx.message?.text || ctx.message?.caption || "";
@@ -18,12 +16,12 @@ export function createMessageHandler(
 
     if (!text && !hasMedia) return;
 
-    // Note: group context logging happens BEFORE pairing middleware in bot/index.ts
-    // This handler only runs for paired users.
-
-    if (!(await allowedChats.isAllowed(ctx.chat!.id.toString()))) {
-      return;
-    }
+    // Access control is enforced by createPairingMiddleware upstream:
+    //   - DM: paired user only
+    //   - Group: must be in allowedChats AND sender not blocked
+    // No need to re-check here. (Earlier code re-applied the allowlist
+    // unconditionally, which silently dropped DMs once the allowlist was
+    // non-empty — DM chat_ids are never in the group allowlist.)
 
     // Download media if present
     const mediaDescriptors: MediaDescriptor[] = [];
