@@ -41,18 +41,19 @@ MCP server listening on port 3101
 Bot polling started
 ```
 
-## 3. Install the `agent-channel` binary locally
+## 3. Install the channel binaries locally
 
 ```bash
 bun run install:bin
 ```
 
-The binary lands in `~/.local/bin/` (or `/usr/local/bin/` if writable, or `%LOCALAPPDATA%\Programs\agent-channel\bin` on Windows). The script tells you to extend `$PATH` if needed.
+The binaries land in `~/.local/bin/` (or `/usr/local/bin/` if writable, or `%LOCALAPPDATA%\Programs\agent-channel\bin` on Windows). The script tells you to extend `$PATH` if needed.
 
 Verify:
 
 ```bash
 agent-channel --help
+agent-channel-generic --help
 ```
 
 ## 4. Register the two MCP servers in Claude Code
@@ -84,6 +85,27 @@ claude --channels server:agent-channel
 ```
 
 The MCP server's `instructions` (set in `src/mcp/index.ts`) are surfaced into Claude's system prompt, so the AI is aware of the pairing protocol on connection.
+
+## 5b. Alternative: Codex with generic channel polling
+
+Codex agents should use `agent-channel-generic`, because Claude's `<channel>` push notification is a Claude Code extension.
+
+```bash
+codex mcp add agent-channel-generic \
+  --env AGENT_ID=frontend-agent \
+  --env REDIS_URI=redis://localhost:6379 \
+  -- agent-channel-generic
+```
+
+If your Codex build can connect to the agent MCP URL, also add the action tools server:
+
+```bash
+codex mcp add agent-comm --url http://localhost:3101/sse
+```
+
+Then tell the Codex agent to call `poll_channel_messages` when idle. Messages with `meta.must_reply="true"` should be answered with `reply`, `publish`, or `send_direct` from `agent-comm`.
+
+More detail: [Channel Clients](./channel-clients.md).
 
 ## 6. Pair the Telegram user with the agent
 

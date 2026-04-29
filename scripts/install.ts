@@ -4,11 +4,9 @@ import { existsSync, mkdirSync, copyFileSync, chmodSync, accessSync, constants }
 import { homedir, platform } from "node:os";
 import { join, delimiter } from "node:path";
 
-const BINARY_NAME = "agent-channel";
+const BINARY_NAMES = ["agent-channel", "agent-channel-generic"];
 const isWindows = platform() === "win32";
 const exeSuffix = isWindows ? ".exe" : "";
-const binaryFile = `${BINARY_NAME}${exeSuffix}`;
-const distPath = join("dist", binaryFile);
 
 function isWritable(path: string): boolean {
   try {
@@ -24,25 +22,32 @@ function resolveBinDir(): string {
 
   if (isWindows) {
     const base = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
-    return join(base, "Programs", BINARY_NAME, "bin");
+    return join(base, "Programs", "agent-channel", "bin");
   }
 
   if (isWritable("/usr/local/bin")) return "/usr/local/bin";
   return join(homedir(), ".local", "bin");
 }
 
-console.log(`Building ${BINARY_NAME}...`);
-await $`bun build src/channel.ts --compile --outfile ${distPath}`;
-
 const binDir = resolveBinDir();
-const target = join(binDir, binaryFile);
-
-console.log(`Installing to ${target}...`);
 mkdirSync(binDir, { recursive: true });
-copyFileSync(distPath, target);
-if (!isWindows) chmodSync(target, 0o755);
 
-console.log(`Installed: ${target}`);
+for (const binaryName of BINARY_NAMES) {
+  const binaryFile = `${binaryName}${exeSuffix}`;
+  const source = binaryName === "agent-channel"
+    ? "src/channel.ts"
+    : "src/channel-generic.ts";
+  const distPath = join("dist", binaryFile);
+  const target = join(binDir, binaryFile);
+
+  console.log(`Building ${binaryName}...`);
+  await $`bun build ${source} --compile --outfile ${distPath}`;
+
+  console.log(`Installing to ${target}...`);
+  copyFileSync(distPath, target);
+  if (!isWindows) chmodSync(target, 0o755);
+  console.log(`Installed: ${target}`);
+}
 
 const pathEntries = (process.env.PATH ?? "").split(delimiter);
 if (!pathEntries.includes(binDir)) {
@@ -58,9 +63,14 @@ if (!pathEntries.includes(binDir)) {
 
 console.log(`
 Usage:
-  ${BINARY_NAME}                          # Run with default config
-  AGENT_ID=my-agent ${BINARY_NAME}        # Run with custom agent ID
+  agent-channel                          # Claude Code channel push
+  agent-channel-generic                  # Portable MCP polling for Codex/Cursor
+  AGENT_ID=my-agent agent-channel        # Run with custom agent ID
 
 Claude Code MCP setup:
-  claude mcp add ${BINARY_NAME} -e AGENT_ID=frontend-agent -e REDIS_URI=redis://localhost:6379 -- ${BINARY_NAME}
-  claude --channels server:${BINARY_NAME}`);
+  claude mcp add agent-channel -e AGENT_ID=frontend-agent -e REDIS_URI=redis://localhost:6379 -- agent-channel
+  claude --channels server:agent-channel
+
+Codex/Cursor MCP setup:
+  Add agent-channel-generic as a stdio MCP server with AGENT_ID and REDIS_URI env vars.
+  Also add the agent-comm SSE server for reply/publish/send_direct tools.`);

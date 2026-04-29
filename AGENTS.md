@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Docker-based multi-agent communication system built with **Bun**, **Grammy.js**, **MCP SDK**, and **Redis Streams**. Each agent runs an independent Telegram bot + MCP SSE server. Agents communicate via Redis Streams fan-out delivery. Telegram provides the human interface; MCP provides the AI agent interface. Claude Code additionally supports real-time push via a stdio channel server.
+A Docker-based multi-agent communication system built with **Bun**, **Grammy.js**, **MCP SDK**, and **Redis Streams**. Each agent runs an independent Telegram bot + MCP SSE server. Agents communicate via Redis Streams fan-out delivery. Telegram provides the human interface; MCP provides the AI agent interface. Claude Code supports real-time push via a stdio channel server; Codex/Cursor-style clients can use the generic stdio channel polling server.
 
 ## Commands
 
@@ -46,11 +46,14 @@ Two MCP connection modes:
 
 1. **SSE server** (`src/index.ts`, runs in Docker) — Provides tools (reply, publish, subscribe, etc.) to any MCP client via HTTP SSE.
 2. **stdio channel server** (`src/channel.ts`, Claude Code subprocess) — Pushes Redis messages as `<channel>` XML tags to Claude Code, triggering automatic AI responses.
+3. **generic stdio channel server** (`src/channel-generic.ts`) — Exposes `poll_channel_messages` and `channel_status` for MCP clients without Claude's channel notification extension.
 
 ### Components
 
 - **Entry point** (`src/index.ts`) — Redis + Grammy bot + MCP SSE server + heartbeat + graceful shutdown
 - **Channel server** (`src/channel.ts`) — Lightweight Redis listener for Claude Code channel push (stdio transport)
+- **Generic channel server** (`src/channel-generic.ts`) — Portable Redis channel polling tools for Codex/Cursor/etc.
+- **Channel shared core** (`src/channel/shared.ts`) — Shared Redis stream reader, media download, and channel instructions
 - **Services** (`src/services/`):
   - `redis.ts` — Redis client wrapper (Streams, Hash, Set)
   - `agent-registry.ts` — Profile registration, heartbeat, discovery
@@ -72,6 +75,7 @@ Two MCP connection modes:
 Telegram → Bot → Redis stream:agent:{id}:inbox
   ├── SSE push loop → MCP SSE client (notifications/message)
   └── channel.ts → Claude Code (<channel> XML, triggers auto-response)
+  └── channel-generic.ts → MCP polling tools (Codex/Cursor/etc.)
 ```
 
 ### Group Behavior
@@ -95,6 +99,10 @@ claude mcp add agent-channel \
 
 # Start with channels enabled
 claude --channels server:agent-channel
+
+# Generic channel polling (Codex/Cursor/etc.)
+# Add as a stdio MCP server with AGENT_ID and REDIS_URI, then call poll_channel_messages.
+bun /absolute/path/to/src/channel-generic.ts
 ```
 
 ## Key Types
