@@ -34,6 +34,11 @@ export function createPairingMiddleware(
     }
 
     if (chatType === "group" || chatType === "supergroup") {
+      // Paired user is the consenting principal — they must be able to run
+      // admin commands (notably /allow_here) before the group is on the
+      // allowlist, otherwise the gate locks out the very command meant to
+      // open it.
+      if (fromId === pairedUser) return next();
       if (!(await allowedChats.isAllowed(ctx.chat!.id.toString()))) return;
       return next();
     }

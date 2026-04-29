@@ -27,6 +27,7 @@ async function main() {
     capabilities: Config.agentCaps,
     project: Config.agentProject,
     bot_username: "", // Will be set after bot init
+    mcp_port: String(Config.mcpPort || ""),
   };
 
   const registry = new AgentRegistry(redis, profile);

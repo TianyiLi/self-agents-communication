@@ -7,14 +7,14 @@
       "dependencies": {
         "@grammyjs/hydrate": "^1.4.1",
         "@grammyjs/parse-mode": "^1.10.0",
-        "@modelcontextprotocol/sdk": "^1.28.0",
+        "@modelcontextprotocol/sdk": "1.28.0",
         "consola": "^3.3.3",
         "grammy": "1.30.0",
         "redis": "^4.7.0",
         "zod": "^3.24.0",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "1.2.5",
       },
       "peerDependencies": {
         "typescript": "^5.0.0",

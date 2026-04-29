@@ -33,6 +33,33 @@ export async function createBot(
   // /start bypasses pairing — handled inside the middleware
   bot.command("start", createStartCommand(pairing));
 
+  // When the bot is added to a group, post a hint so the user knows the
+  // exact command needed to authorize it. my_chat_member fires regardless
+  // of privacy mode, so this is the one signal we can rely on before
+  // /setprivacy → Disable has been done.
+  bot.on("my_chat_member", async (ctx) => {
+    const update = ctx.myChatMember;
+    if (!update) return;
+    const chat = update.chat;
+    if (chat.type !== "group" && chat.type !== "supergroup") return;
+    const wasMember = ["member", "administrator"].includes(update.old_chat_member.status);
+    const nowMember = ["member", "administrator"].includes(update.new_chat_member.status);
+    if (wasMember || !nowMember) return;
+    const username = (await bot.api.getMe()).username;
+    try {
+      await ctx.api.sendMessage(
+        chat.id,
+        `Hi! I'm @${username}. To authorize me to listen here, the paired user must run:\n` +
+          `<code>/allow_here@${username}</code>\n\n` +
+          `If that command shows no response, disable group privacy in @BotFather ` +
+          `(<code>/setprivacy</code> → Disable), then kick and re-add me.`,
+        { parse_mode: "HTML" }
+      );
+    } catch (err) {
+      console.error(`[${username}] failed to post join hint in chat ${chat.id}:`, err);
+    }
+  });
+
   // Group context logging + alias caching — runs BEFORE pairing middleware
   // so ALL group messages are logged regardless of sender, and any
   // username we see gets cached for /block @handle resolution.
@@ -50,6 +77,9 @@ export async function createBot(
     const isGroup =
       ctx.chat?.type === "group" || ctx.chat?.type === "supergroup";
     if (isGroup) {
+      console.error(
+        `[${me.username}] saw group msg chat=${ctx.chat!.id} from=${ctx.from?.id} text=${JSON.stringify((ctx.message?.text || ctx.message?.caption || "").slice(0, 80))}`
+      );
       if (!(await allowedChats.isAllowed(ctx.chat!.id.toString()))) {
         return next();
       }
@@ -91,8 +121,8 @@ export async function createBot(
   // the command handlers (e.g. /block requires paired user).
   bot.command("status", createStatusCommand(registry));
   bot.command("channels", createChannelsCommand(registry));
-  bot.command("allow_here", createAllowHereCommand(allowedChats));
-  bot.command("disallow_here", createDisallowHereCommand(allowedChats));
+  bot.command("allow_here", createAllowHereCommand(allowedChats, pairing));
+  bot.command("disallow_here", createDisallowHereCommand(allowedChats, pairing));
   bot.command("allowed", createAllowedCommand(allowedChats));
   bot.command("block", createBlockCommand(blockedUsers, pairing));
   bot.command("unblock", createUnblockCommand(blockedUsers, pairing));
