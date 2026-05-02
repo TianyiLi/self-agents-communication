@@ -98,11 +98,26 @@ export async function createMcpServer(
 
     // SSE endpoint — single session only
     if (url.pathname === "/sse") {
-      consola.info("MCP client connecting via SSE");
+      const ua = req.headers["user-agent"] ?? "?";
+      const peer = req.socket.remoteAddress ?? "?";
+      consola.info(
+        `MCP client connecting via SSE (ua="${ua}" peer=${peer} activeSession=${sessionManager.getActiveSessionId() ?? "none"})`
+      );
 
-      // Close previous transport if exists
+      // Close previous transport if exists — but only if it's actually dead.
+      // Otherwise a spurious second /sse connection would silently kick the
+      // working client and cause "Session not found" 404s on its next POST.
       if (activeTransport) {
-        consola.info("Closing previous SSE connection");
+        const stillAlive = await sessionManager.pingActive();
+        if (stillAlive) {
+          consola.warn(
+            `Rejecting new SSE — existing session ${activeTransport.sessionId} is still alive`
+          );
+          res.writeHead(409, { "Content-Type": "text/plain" });
+          res.end("Another MCP session is active. Disconnect it first.");
+          return;
+        }
+        consola.info(`Replacing dead SSE connection ${activeTransport.sessionId}`);
         const oldId = activeTransport.sessionId;
         try {
           await activeTransport.close();
@@ -197,6 +212,9 @@ export async function createMcpServer(
         await transport.handlePostMessage(req, res);
         return;
       }
+      consola.warn(
+        `POST /messages 404 — requested sessionId=${sessionId ?? "(none)"}, active=${sessionManager.getActiveSessionId() ?? "none"}`
+      );
       res.writeHead(404);
       res.end("Session not found");
       return;

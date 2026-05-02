@@ -103,6 +103,13 @@ export class SessionManager {
    *
    * HACK: SDK does not expose transport liveness. Pin @modelcontextprotocol/sdk version.
    */
+  async pingActive(): Promise<boolean> {
+    if (!this.activeSessionId) return false;
+    const t = this.transports.get(this.activeSessionId);
+    if (!t) return false;
+    return this.pingTransport(t);
+  }
+
   private async pingTransport(transport: SSEServerTransport): Promise<boolean> {
     try {
       const result = await Promise.race([
