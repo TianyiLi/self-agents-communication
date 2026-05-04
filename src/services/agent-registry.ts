@@ -24,25 +24,44 @@ export class AgentRegistry {
       mcp_port: this.profile.mcp_port ?? "",
     });
     await this.redis.sadd("idx:agents:registry", this.profile.agent_id);
-    await this.redis.sadd("idx:agents:online", this.profile.agent_id);
     await this.heartbeat();
-    await this.broadcastOnline(true);
   }
 
   async heartbeat() {
     await this.redis.set(`agent:${this.profile.agent_id}:alive`, "1", 90);
-    await this.redis.sadd("idx:agents:online", this.profile.agent_id);
   }
 
-  async goOffline(reason: string) {
+  async controllerHeartbeat() {
+    await this.redis.set(`agent:${this.profile.agent_id}:controller_alive`, "1", 90);
+  }
+
+  async markControllerOnline() {
+    const wasOnline = await this.redis.sismember("idx:agents:online", this.profile.agent_id);
+    const wasReachable =
+      wasOnline && (await this.redis.exists(`agent:${this.profile.agent_id}:controller_alive`));
+    await this.redis.sadd("idx:agents:online", this.profile.agent_id);
+    await this.controllerHeartbeat();
+    if (!wasReachable) {
+      await this.broadcastOnline(true);
+    }
+  }
+
+  async markControllerOffline(reason: string) {
+    const wasOnline = await this.redis.sismember("idx:agents:online", this.profile.agent_id);
     await this.redis.srem("idx:agents:online", this.profile.agent_id);
-    await this.redis.del(`agent:${this.profile.agent_id}:alive`);
+    await this.redis.del(`agent:${this.profile.agent_id}:controller_alive`);
+    if (!wasOnline) return;
     await this.redis.xadd("stream:system:introductions", {
       event: "agent_offline",
       agent_id: this.profile.agent_id,
       reason,
       timestamp: Date.now().toString(),
     }, 500);
+  }
+
+  async goOffline(reason: string) {
+    await this.markControllerOffline(reason);
+    await this.redis.del(`agent:${this.profile.agent_id}:alive`);
   }
 
   async broadcastOnline(isNew: boolean) {
@@ -68,6 +87,13 @@ export class AgentRegistry {
     for (const id of ids) {
       const raw = await this.redis.hgetall(`agent:${id}:profile`);
       if (!raw.agent_id) continue;
+      const controllerAlive = await this.redis.exists(`agent:${id}:controller_alive`);
+      if (onlineSet.has(id) && !controllerAlive) {
+        await this.redis.srem("idx:agents:online", id);
+      }
+      const online = onlineSet.has(id) && controllerAlive;
+      if (onlyOnline && !online) continue;
+
       agents.push({
         agent_id: raw.agent_id,
         name: raw.name,
@@ -76,7 +102,7 @@ export class AgentRegistry {
         capabilities: JSON.parse(raw.capabilities || "[]"),
         project: raw.project,
         bot_username: raw.bot_username,
-        online: onlineSet.has(id),
+        online,
       });
     }
     return agents;

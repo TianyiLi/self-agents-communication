@@ -81,6 +81,13 @@ export class ChannelStreamReader {
           await this.redis.xack(result.streamKey, this.groupName, [msg.id]);
           continue;
         }
+        if (
+          result.streamKey !== "stream:system:introductions" &&
+          (await this.isFocused())
+        ) {
+          await this.redis.xack(result.streamKey, this.groupName, [msg.id]);
+          continue;
+        }
 
         const recvAt = Date.now();
         const xaddTs = parseInt(msg.message.timestamp || "0");
@@ -129,6 +136,10 @@ export class ChannelStreamReader {
       `stream:agent:${this.config.agentId}:inbox`,
       "stream:system:introductions",
     ];
+  }
+
+  private async isFocused(): Promise<boolean> {
+    return (await this.redis.get(`agent:${this.config.agentId}:focus`)) !== null;
   }
 
   private async ensureFixedGroups() {
@@ -244,6 +255,7 @@ export function buildChannelInstructions(config: {
     `- source="system": agent online/offline event`,
     ``,
     `## Response rules`,
+    `- You may call focus_mode on the SSE tools server before deep development work. While focused, external messages are paused; Telegram users can interrupt with /force.`,
     `- meta.must_reply="true" -> You MUST respond using agent-comm tools (reply, publish, send_direct).`,
     `- meta.must_reply="false" -> Decide based on YOUR ROLE whether to respond. Stay silent if the topic is outside your expertise or already concluded.`,
     `- If meta.from="${config.agentId}", IGNORE - that is your own message echoing back (should be filtered, but double-check).`,

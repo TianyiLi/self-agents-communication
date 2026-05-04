@@ -7,14 +7,14 @@ import { guardSession } from "./guard";
 export function registerListAgentsTool(server: McpServer, registry: AgentRegistry, sessionManager: SessionManager) {
   server.tool(
     "list_agents",
-    "List all registered agents in the team with their roles, capabilities, and online status. " +
+    "List all registered agents in the team with their roles, capabilities, and AI session status. " +
       "Use this to discover who is available for collaboration, find the right agent to ask " +
       "questions or delegate tasks to, or understand the current team composition. " +
       "Each agent entry includes: agent_id (for send_direct), name, role, description, " +
-      "capabilities list, project path, and whether they are currently online.",
+      "capabilities list, project path, and whether their MCP controller session is active.",
     {
       only_online: z.boolean().default(false).describe(
-        "When true, only return agents that are currently online and reachable. " +
+        "When true, only return agents with an active MCP controller session. " +
           "Default false returns all registered agents including offline ones."
       ),
     },

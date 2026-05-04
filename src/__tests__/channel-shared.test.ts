@@ -81,6 +81,9 @@ describe("ChannelStreamReader", () => {
       async hget() {
         return undefined;
       },
+      async get() {
+        return null;
+      },
       async xreadgroup(
         groupName: string,
         consumerName: string,

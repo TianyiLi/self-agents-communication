@@ -1,11 +1,13 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PairingService } from "../../services/pairing";
+import type { AgentRegistry } from "../../services/agent-registry";
 import type { SessionManager } from "../session";
 
 export function registerAgentPairTool(
   server: McpServer,
   pairing: PairingService,
+  registry: AgentRegistry,
   sessionManager: SessionManager
 ) {
   server.tool(
@@ -37,6 +39,7 @@ export function registerAgentPairTool(
       if (!code) {
         const existingUser = await pairing.getPairedUser();
         if (existingUser) {
+          await registry.markControllerOnline();
           return {
             content: [{
               type: "text" as const,
@@ -76,6 +79,7 @@ export function registerAgentPairTool(
         };
       }
 
+      await registry.markControllerOnline();
       return {
         content: [{
           type: "text" as const,

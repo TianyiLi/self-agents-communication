@@ -5,6 +5,7 @@ import type { AgentRegistry } from "../services/agent-registry";
 import type { PairingService } from "../services/pairing";
 import type { AllowedChatsService } from "../services/allowed-chats";
 import type { BlockedUsersService } from "../services/blocked-users";
+import type { FocusService } from "../services/focus";
 import { createPairingMiddleware } from "./middleware/pairing";
 import { createStartCommand } from "./commands/start";
 import { createStatusCommand } from "./commands/status";
@@ -19,6 +20,7 @@ import {
   createUnblockCommand,
   createBlockedCommand,
 } from "./commands/blocked";
+import { createForceCommand } from "./commands/force";
 import { createMessageHandler } from "./handlers/message";
 
 export async function createBot(
@@ -26,7 +28,8 @@ export async function createBot(
   registry: AgentRegistry,
   pairing: PairingService,
   allowedChats: AllowedChatsService,
-  blockedUsers: BlockedUsersService
+  blockedUsers: BlockedUsersService,
+  focus: FocusService
 ) {
   const bot = new Bot(Config.botToken);
 
@@ -127,11 +130,12 @@ export async function createBot(
   bot.command("block", createBlockCommand(blockedUsers, pairing));
   bot.command("unblock", createUnblockCommand(blockedUsers, pairing));
   bot.command("blocked", createBlockedCommand(blockedUsers));
+  bot.command("force", createForceCommand(redis, focus, pairing));
 
   // General message handler — reached by paired user (DM) or any
   // non-blocked group member (in allowlisted groups).
   // Fires for text, photo, and document messages.
-  const handler = createMessageHandler(redis, me.username);
+  const handler = createMessageHandler(redis, me.username, focus);
   bot.on("message:text", handler);
   bot.on("message:photo", handler);
   bot.on("message:document", handler);

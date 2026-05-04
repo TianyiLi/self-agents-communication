@@ -1,5 +1,6 @@
 import type { Context } from "grammy";
 import type { RedisService } from "../../services/redis";
+import type { FocusService } from "../../services/focus";
 import { Config } from "@config/index";
 import { saveMedia, type MediaDescriptor } from "../../services/media";
 import consola from "consola";
@@ -8,13 +9,21 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB (Telegram Bot API limit)
 
 export function createMessageHandler(
   redis: RedisService,
-  botUsername: string
+  botUsername: string,
+  focus: FocusService
 ) {
   return async (ctx: Context) => {
     const text = ctx.message?.text || ctx.message?.caption || "";
     const hasMedia = !!(ctx.message?.photo || ctx.message?.document);
 
     if (!text && !hasMedia) return;
+
+    if (await focus.isFocused()) {
+      await ctx.reply(
+        "目前 agent 正在 focus mode，暫時不接收新訊息。需要中斷請使用 /force。"
+      );
+      return;
+    }
 
     // Access control is enforced by createPairingMiddleware upstream:
     //   - DM: paired user only

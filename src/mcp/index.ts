@@ -9,6 +9,7 @@ import { getMedia, isValidMediaId } from "../services/media";
 import type { AgentRegistry } from "../services/agent-registry";
 import type { PairingService } from "../services/pairing";
 import type { Bot } from "grammy";
+import type { FocusService } from "../services/focus";
 import { PushLoop } from "./push";
 import { SessionManager } from "./session";
 import { createNotifier } from "./notifier";
@@ -20,13 +21,15 @@ import { registerUnsubscribeTool } from "./tools/unsubscribe";
 import { registerListAgentsTool } from "./tools/list-agents";
 import { registerGetHistoryTool } from "./tools/get-history";
 import { registerSendDirectTool } from "./tools/send-direct";
+import { registerFocusModeTool } from "./tools/focus-mode";
 import consola from "consola";
 
 export async function createMcpServer(
   redis: RedisService,
   registry: AgentRegistry,
   pairing: PairingService,
-  bot: Bot
+  bot: Bot,
+  focus: FocusService
 ) {
   const mcpServer = new McpServer(
     {
@@ -58,6 +61,7 @@ export async function createMcpServer(
         `- \`subscribe\` / \`unsubscribe\` — manage channels this agent listens to.`,
         `- \`list_agents\` — see who is online and their roles/capabilities.`,
         `- \`get_history\` — fetch recent messages from inbox or a channel.`,
+        `- \`focus_mode\` — pause external message delivery while doing deep work; Telegram users can interrupt with \`/force\`.`,
       ].filter(Boolean).join("\n"),
     }
   );
@@ -67,7 +71,7 @@ export async function createMcpServer(
   // Create notifier — NOTIFIER_MODE env: "logging" (all clients), "channel" (Claude), "auto" (try both)
   // Notifier writes directly to SSE transport via sessionManager (bypasses Server internal transport)
   const notifier = createNotifier(sessionManager);
-  const pushLoop = new PushLoop(redis, notifier, sessionManager);
+  const pushLoop = new PushLoop(redis, notifier, sessionManager, focus);
 
   // Restore subscriptions from Redis (persisted across restarts)
   const subs = await registry.getSubscriptions();
@@ -75,15 +79,16 @@ export async function createMcpServer(
     pushLoop.addChannel(channel);
   }
 
-  // Register all 8 tools — pass sessionManager for access control
-  registerAgentPairTool(mcpServer, pairing, sessionManager);
+  // Register tools — pass sessionManager for access control
+  registerAgentPairTool(mcpServer, pairing, registry, sessionManager);
   registerReplyTool(mcpServer, bot, sessionManager);
   registerPublishTool(mcpServer, redis, sessionManager);
   registerSubscribeTool(mcpServer, redis, registry, pushLoop, sessionManager);
   registerUnsubscribeTool(mcpServer, registry, pushLoop, sessionManager);
   registerListAgentsTool(mcpServer, registry, sessionManager);
   registerGetHistoryTool(mcpServer, redis, sessionManager);
-  registerSendDirectTool(mcpServer, redis, sessionManager);
+  registerSendDirectTool(mcpServer, redis, sessionManager, focus);
+  registerFocusModeTool(mcpServer, focus, sessionManager);
 
   // Start the push loop (begins listening to Redis Streams)
   await pushLoop.start();
@@ -119,12 +124,16 @@ export async function createMcpServer(
         }
         consola.info(`Replacing dead SSE connection ${activeTransport.sessionId}`);
         const oldId = activeTransport.sessionId;
+        const wasActive = sessionManager.isActiveSession(oldId);
         try {
           await activeTransport.close();
         } catch {
           // Already closed
         }
         sessionManager.removeTransport(oldId);
+        if (wasActive) {
+          await registry.markControllerOffline("mcp_replaced");
+        }
         // HACK: SDK lacks resetTransport(). Pin @modelcontextprotocol/sdk to exact version.
         // Reset McpServer's internal transport so connect() works again.
         // Don't call server.close() — that kills the Server and breaks push loop.
@@ -146,7 +155,10 @@ export async function createMcpServer(
       // agent_pair(""), which the AI doesn't do automatically — so push
       // dies silently after every reconnect.
       if (await pairing.isPaired()) {
-        await sessionManager.claimSession(transport.sessionId);
+        const claim = await sessionManager.claimSession(transport.sessionId);
+        if (claim.ok) {
+          await registry.markControllerOnline();
+        }
         consola.info(`Auto-resumed paired session: ${transport.sessionId}`);
       }
 
@@ -163,7 +175,11 @@ export async function createMcpServer(
       transport.onclose = () => {
         clearInterval(keepalive);
         consola.info(`MCP client disconnected: ${transport.sessionId}`);
+        const wasActive = sessionManager.isActiveSession(transport.sessionId);
         sessionManager.removeTransport(transport.sessionId);
+        if (wasActive) {
+          void registry.markControllerOffline("mcp_disconnected");
+        }
         if (activeTransport === transport) {
           activeTransport = null;
         }

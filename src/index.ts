@@ -5,6 +5,7 @@ import { AgentRegistry } from "./services/agent-registry";
 import { PairingService } from "./services/pairing";
 import { AllowedChatsService } from "./services/allowed-chats";
 import { BlockedUsersService } from "./services/blocked-users";
+import { FocusService } from "./services/focus";
 import { createBot } from "./bot/index";
 import { createMcpServer } from "./mcp/index";
 import { cleanupStaleFiles, ensureMediaDir } from "./services/media";
@@ -38,9 +39,10 @@ async function main() {
     consola.info(`Seeded ${seeded} chat ids into Redis allowlist from env`);
   }
   const blockedUsers = new BlockedUsersService(redis, Config.agentId);
+  const focus = new FocusService(redis, Config.agentId);
 
   // 3. Start Telegram bot
-  const { bot, botUsername } = await createBot(redis, registry, pairing, allowedChats, blockedUsers);
+  const { bot, botUsername } = await createBot(redis, registry, pairing, allowedChats, blockedUsers, focus);
   profile.bot_username = botUsername;
   consola.success(`Telegram bot ready: @${botUsername}`);
 
@@ -49,13 +51,21 @@ async function main() {
   consola.success("Agent registered in Redis");
 
   // 5. Start MCP server
-  const { pushLoop } = await createMcpServer(redis, registry, pairing, bot);
+  const { pushLoop, sessionManager } = await createMcpServer(redis, registry, pairing, bot, focus);
   consola.success(`MCP server listening on port ${Config.mcpPort}`);
 
   // 6. Heartbeat
   const heartbeatInterval = setInterval(async () => {
     try {
       await registry.heartbeat();
+      if (sessionManager.hasActiveSession()) {
+        if (await sessionManager.pingActive()) {
+          await registry.controllerHeartbeat();
+        } else {
+          sessionManager.release();
+          await registry.markControllerOffline("mcp_heartbeat_lost");
+        }
+      }
     } catch (err) {
       consola.error("Heartbeat failed:", err);
     }

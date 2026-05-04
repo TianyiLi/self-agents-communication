@@ -1,11 +1,17 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RedisService } from "../../services/redis";
+import type { FocusService } from "../../services/focus";
 import { Config } from "@config/index";
 import type { SessionManager } from "../session";
 import { guardSession } from "./guard";
 
-export function registerSendDirectTool(server: McpServer, redis: RedisService, sessionManager: SessionManager) {
+export function registerSendDirectTool(
+  server: McpServer,
+  redis: RedisService,
+  sessionManager: SessionManager,
+  focus: FocusService
+) {
   server.tool(
     "send_direct",
     "Send a direct message to a specific agent by their agent ID. The message goes straight " +
@@ -27,6 +33,19 @@ export function registerSendDirectTool(server: McpServer, redis: RedisService, s
     async ({ target_agent_id, content, type, quote_content }, extra) => {
       const denied = guardSession(extra.sessionId ?? "", sessionManager);
       if (denied) return denied;
+      const targetFocus = await focus.get(target_agent_id);
+      if (targetFocus) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              status: "target_focused",
+              target: target_agent_id,
+              focus: targetFocus,
+            }),
+          }],
+        };
+      }
       const fields: Record<string, string> = {
         from: Config.agentId,
         from_name: Config.agentName,

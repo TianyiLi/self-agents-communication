@@ -2,6 +2,7 @@ import type { RedisService } from "../services/redis";
 import { Config } from "@config/index";
 import type { SessionManager } from "./session";
 import type { Notifier } from "./notifier";
+import type { FocusService } from "../services/focus";
 import consola from "consola";
 
 /**
@@ -23,12 +24,19 @@ export class PushLoop {
   private redis: RedisService;
   private notifier: Notifier;
   private sessionManager: SessionManager;
+  private focus: FocusService;
   private agentId: string;
 
-  constructor(redis: RedisService, notifier: Notifier, sessionManager: SessionManager) {
+  constructor(
+    redis: RedisService,
+    notifier: Notifier,
+    sessionManager: SessionManager,
+    focus: FocusService
+  ) {
     this.redis = redis;
     this.notifier = notifier;
     this.sessionManager = sessionManager;
+    this.focus = focus;
     this.agentId = Config.agentId;
   }
 
@@ -107,6 +115,17 @@ export class PushLoop {
           for (const msg of result.messages) {
             // Skip own messages to prevent echo loops
             if (msg.message.from === this.agentId) {
+              await this.redis.xack(
+                result.streamKey,
+                `agent:${this.agentId}`,
+                [msg.id]
+              );
+              continue;
+            }
+            if (
+              result.streamKey !== "stream:system:introductions" &&
+              (await this.focus.isFocused())
+            ) {
               await this.redis.xack(
                 result.streamKey,
                 `agent:${this.agentId}`,
