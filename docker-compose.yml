@@ -90,5 +90,33 @@ services:
     ports:
       - "3103:3103"
 
+  solidity-agent:
+    build: .
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./package.json:/app/package.json
+    command: ["bun", "run", "--watch", "src/index.ts"]
+    environment:
+      AGENT_ID: solidity-agent
+      AGENT_NAME: solidity-agent
+      AGENT_ROLE: Solidity smart contract developer
+      AGENT_DESC: |
+        負責 Solidity smart contract 開發、安全審查與測試。
+        擅長 EVM、Foundry/Hardhat、合約介面設計、gas optimization、
+        access control、upgradeability、reentrancy 防護與常見 DeFi/NFT 合約模式。
+      AGENT_CAPS: solidity,evm,foundry,hardhat,smart-contract-security,gas-optimization,defi,nft
+      AGENT_PROJECT: /project/contracts
+      BOT_TOKEN: ${SOLIDITY_BOT_TOKEN}
+      MCP_PORT: 3104
+      REDIS_URI: redis://redis:6379
+      ALLOWED_CHAT_IDS: ${ALLOWED_CHAT_IDS:-}
+    ports:
+      - "3104:3104"
+
 volumes:
   redis-data:

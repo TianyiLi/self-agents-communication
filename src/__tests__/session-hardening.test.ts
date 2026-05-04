@@ -50,6 +50,46 @@ describe("pingTransport hardening", () => {
   });
 });
 
+describe("SessionManager dead-socket detection", () => {
+  it("treats a transport with an ended response as dead, even if send() would resolve", async () => {
+    const { SessionManager } = await import("../mcp/session");
+    const mgr = new SessionManager();
+
+    // Transport whose underlying res is already ended — send() would
+    // still resolve (Node http buffers writes after end()), so the only
+    // way to know it's dead is the res state itself.
+    const fakeTransport: any = {
+      sessionId: "old",
+      res: { writableEnded: true, destroyed: false, socket: { destroyed: false } },
+      send: async () => {
+        /* resolves successfully even though socket is gone */
+      },
+    };
+    mgr.addTransport("old", fakeTransport);
+    await mgr.claimSession("old");
+
+    // New session should be allowed to take over without waiting for
+    // the (false-positive) ping timeout.
+    const result = await mgr.claimSession("new");
+    expect(result.ok).toBe(true);
+    expect(mgr.getActiveSessionId()).toBe("new");
+  });
+
+  it("treats a transport with a destroyed socket as dead", async () => {
+    const { SessionManager } = await import("../mcp/session");
+    const mgr = new SessionManager();
+    const fakeTransport: any = {
+      sessionId: "old",
+      res: { writableEnded: false, destroyed: false, socket: { destroyed: true } },
+      send: async () => {},
+    };
+    mgr.addTransport("old", fakeTransport);
+    await mgr.claimSession("old");
+
+    expect(await mgr.pingActive()).toBe(false);
+  });
+});
+
 describe("dependency pinning", () => {
   it("@types/bun is pinned to exact version", async () => {
     const pkg = await Bun.file("package.json").json();

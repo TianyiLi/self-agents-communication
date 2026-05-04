@@ -250,10 +250,10 @@ You (Telegram)              Bot / Redis              MCP Client
        AGENT_CAPS: capability1,capability2
        AGENT_PROJECT: /project/path
        BOT_TOKEN: ${MY_NEW_AGENT_BOT_TOKEN}
-       MCP_PORT: 3103
+       MCP_PORT: 3105
        REDIS_URI: redis://redis:6379
      ports:
-       - "3103:3103"
+       - "3105:3105"
    ```
 5. Start it:
    ```bash

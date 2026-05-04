@@ -21,7 +21,7 @@ Prereq: read [setup.md](./setup.md) first — this doc assumes you already under
 
 ### 1. Define each agent in `docker-compose.yml`
 
-`frontend-agent` and `backend-agent` already ship in the default file. Add more by copying a service block and bumping `MCP_PORT`:
+`frontend-agent`, `backend-agent`, `lead-agent`, and `solidity-agent` already ship in the default file. Add more by copying a service block and bumping `MCP_PORT`:
 
 ```yaml
   qa-agent:
@@ -41,10 +41,10 @@ Prereq: read [setup.md](./setup.md) first — this doc assumes you already under
       AGENT_CAPS: testing,playwright,ci
       AGENT_PROJECT: /project/qa
       BOT_TOKEN: ${QA_BOT_TOKEN}
-      MCP_PORT: 3103
+      MCP_PORT: 3105
       REDIS_URI: redis://redis:6379
     ports:
-      - "3103:3103"
+      - "3105:3105"
 ```
 
 Add the matching token to `.env`:

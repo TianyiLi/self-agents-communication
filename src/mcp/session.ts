@@ -111,6 +111,24 @@ export class SessionManager {
   }
 
   private async pingTransport(transport: SSEServerTransport): Promise<boolean> {
+    // Synchronous liveness check first — Node's res.write() to a
+    // half-closed socket often resolves successfully (data goes into the
+    // kernel buffer), so the async send-based ping returns a false
+    // positive and the new SSE gets rejected with 409. The underlying
+    // res / socket state is the only reliable signal that the client
+    // already disconnected.
+    const res = (transport as any).res as
+      | { writableEnded?: boolean; destroyed?: boolean; socket?: { destroyed?: boolean } }
+      | undefined;
+    if (
+      !res ||
+      res.writableEnded ||
+      res.destroyed ||
+      res.socket?.destroyed
+    ) {
+      return false;
+    }
+
     try {
       const result = await Promise.race([
         transport.send({
