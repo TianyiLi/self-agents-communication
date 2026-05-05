@@ -109,6 +109,10 @@ const reader = new ChannelStreamReader({
   redisUri: REDIS_URI,
   mediaDirPrefix: "agent-channel-media",
 });
+type ChannelBatch = Awaited<ReturnType<ChannelStreamReader["read"]>>;
+
+const CHANNEL_BATCH_READ_COUNT = 100;
+const CHANNEL_BATCH_MAX_MESSAGES = 500;
 
 async function start() {
   await reader.connect();
@@ -120,28 +124,70 @@ async function start() {
 async function listen() {
   while (true) {
     try {
-      const messages = await reader.read(5000, 10);
-      for (const message of messages) {
-        const notifyStart = Date.now();
-        const { stream, ...meta } = message.meta;
-        await server.notification({
-          method: "notifications/claude/channel",
-          params: {
-            content: message.content,
-            meta,
-          },
-        });
+      const messages = await readAvailableBatch();
+      if (messages.length === 0) continue;
 
-        const notifyLatency = Date.now() - notifyStart;
-        process.stderr.write(
-          `[push] stream=${message.source} queue=${message.queueLatencyMs}ms media=${message.mediaLatencyMs}ms notify=${notifyLatency}ms\n`
-        );
-      }
+      const notifyStart = Date.now();
+      const notification = buildChannelNotification(messages);
+      await server.notification({
+        method: "notifications/claude/channel",
+        params: notification,
+      });
+
+      const notifyLatency = Date.now() - notifyStart;
+      const maxQueueLatency = Math.max(...messages.map((m) => m.queueLatencyMs));
+      const totalMediaLatency = messages.reduce((sum, m) => sum + m.mediaLatencyMs, 0);
+      process.stderr.write(
+        `[push] batch=${messages.length} streams=${[...new Set(messages.map((m) => m.source))].join(",")} queue=${maxQueueLatency}ms media=${totalMediaLatency}ms notify=${notifyLatency}ms\n`
+      );
     } catch (err) {
       process.stderr.write(`Channel listen error: ${err}\n`);
       await Bun.sleep(1000);
     }
   }
+}
+
+async function readAvailableBatch(): Promise<ChannelBatch> {
+  const messages = await reader.read(5000, CHANNEL_BATCH_READ_COUNT);
+  if (messages.length === 0) return messages;
+
+  while (messages.length < CHANNEL_BATCH_MAX_MESSAGES) {
+    const next = await reader.read(1, CHANNEL_BATCH_READ_COUNT);
+    if (next.length === 0) break;
+    messages.push(...next);
+  }
+
+  return messages;
+}
+
+function buildChannelNotification(messages: ChannelBatch) {
+  if (messages.length === 1) {
+    const message = messages[0];
+    const { stream, ...meta } = message.meta;
+    return {
+      content: message.content,
+      meta,
+    };
+  }
+
+  return {
+    content: JSON.stringify({
+      messages: messages.map((message) => ({
+        id: message.id,
+        source: message.source,
+        stream: message.stream,
+        content: message.content,
+        meta: message.meta,
+      })),
+    }, null, 2),
+    meta: {
+      source: "batch",
+      type: "batch",
+      count: String(messages.length),
+      must_reply: messages.some((message) => message.meta.must_reply === "true") ? "true" : "false",
+      sources: [...new Set(messages.map((message) => message.source))].join(","),
+    },
+  };
 }
 
 start().catch((err) => {

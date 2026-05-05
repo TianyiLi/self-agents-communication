@@ -253,6 +253,7 @@ export function buildChannelInstructions(config: {
     `- source="inbox": direct message or Telegram command for you`,
     `- source="channel:<name>": cross-agent broadcast you subscribed to (e.g. "team")`,
     `- source="system": agent online/offline event`,
+    `- source="batch": content is a JSON object with a messages array; process each message with its own meta.`,
     ``,
     `## Response rules`,
     `- You may call focus_mode on the SSE tools server before deep development work. While focused, external messages are paused; Telegram users can interrupt with /force.`,

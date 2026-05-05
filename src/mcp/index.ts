@@ -22,6 +22,9 @@ import { registerListAgentsTool } from "./tools/list-agents";
 import { registerGetHistoryTool } from "./tools/get-history";
 import { registerSendDirectTool } from "./tools/send-direct";
 import { registerFocusModeTool } from "./tools/focus-mode";
+import { registerReactTool } from "./tools/react";
+import { registerEditMessageTool } from "./tools/edit-message";
+import { registerReadMediaTool } from "./tools/read-media";
 import consola from "consola";
 
 export async function createMcpServer(
@@ -55,7 +58,10 @@ export async function createMcpServer(
         `Until pairing succeeds, every other tool will refuse with a session error.`,
         ``,
         `## Tools`,
-        `- \`reply\` — send a message back to Telegram (chat_id from channel meta).`,
+        `- \`reply\` — send text and optional file attachments back to Telegram (chat_id from channel meta).`,
+        `- \`react\` — add an emoji reaction to an incoming Telegram message.`,
+        `- \`edit_message\` — edit a message previously sent by this bot for progress updates.`,
+        `- \`read_media\` — read inbound Telegram media by id from meta.media when local file paths are not available.`,
         `- \`publish\` — broadcast to a cross-agent channel (auto-subscribed: "team").`,
         `- \`send_direct\` — DM another agent (call \`list_agents\` first to discover IDs).`,
         `- \`subscribe\` / \`unsubscribe\` — manage channels this agent listens to.`,
@@ -89,6 +95,9 @@ export async function createMcpServer(
   registerGetHistoryTool(mcpServer, redis, sessionManager);
   registerSendDirectTool(mcpServer, redis, sessionManager, focus);
   registerFocusModeTool(mcpServer, focus, sessionManager);
+  registerReactTool(mcpServer, bot, sessionManager);
+  registerEditMessageTool(mcpServer, bot, sessionManager);
+  registerReadMediaTool(mcpServer, redis, sessionManager);
 
   // Start the push loop (begins listening to Redis Streams)
   await pushLoop.start();
