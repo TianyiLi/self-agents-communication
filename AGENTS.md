@@ -15,6 +15,10 @@ bun dev            # Run with hot reload (bun --watch ./src/index.ts)
 bun test           # Run tests (bun test)
 ```
 
+## Git
+
+- Use Conventional Commit messages for commits.
+
 ### Docker
 
 ```bash

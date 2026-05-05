@@ -86,9 +86,46 @@ claude --channels server:agent-channel
 
 The MCP server's `instructions` (set in `src/mcp/index.ts`) are surfaced into Claude's system prompt, so the AI is aware of the pairing protocol on connection.
 
-## 5b. Alternative: Codex with generic channel polling
+## 5b. Optional: Claude launcher mode
 
-Codex agents should use `agent-channel-generic`, because Claude's `<channel>` push notification is a Claude Code extension.
+After `agent-channel --mcp-setup` has registered the MCP servers, the launcher can start Claude Code and keep controller presence online while Claude is running:
+
+```bash
+agent-channel --claude \
+  --agent-id frontend-agent \
+  --redis-uri redis://localhost:6379 \
+  --sse-url http://localhost:3101/sse \
+  --cwd /path/to/your/project \
+  --restart
+```
+
+This mode is lifecycle-only. Claude still receives messages through the `agent-channel` MCP server and still uses `agent-comm` tools to reply.
+
+## 5c. Alternative: Codex launcher mode
+
+For always-on Codex, use the app-server launcher:
+
+```bash
+agent-channel --codex \
+  --agent-id frontend-agent \
+  --redis-uri redis://localhost:6379 \
+  --cwd /path/to/your/project \
+  --restart
+```
+
+The launcher starts `codex app-server --listen stdio://`, creates or resumes a Codex thread, stores the thread id at `agent:frontend-agent:codex_thread`, and injects Telegram/channel messages into turns.
+
+Codex still needs action tools to respond. If your Codex build supports the SSE MCP server, add:
+
+```bash
+codex mcp add agent-comm --url http://localhost:3101/sse
+```
+
+Use `--approval-policy never` only in trusted local workspaces.
+
+## 5d. Alternative: Codex with generic channel polling
+
+Codex agents can also use `agent-channel-generic` when you prefer an explicit polling loop instead of the always-on launcher.
 
 ```bash
 codex mcp add agent-channel-generic \
@@ -97,7 +134,7 @@ codex mcp add agent-channel-generic \
   -- agent-channel-generic
 ```
 
-If your Codex build can connect to the agent MCP URL, also add the action tools server:
+If you have not already added the action tools server:
 
 ```bash
 codex mcp add agent-comm --url http://localhost:3101/sse

@@ -1,16 +1,18 @@
 # Channel Clients
 
-For the planned always-on runtime launcher work, see
+For implementation details behind the launcher modes, see
 [Agent Channel Session Drivers Plan](./session-drivers-plan.md).
 
-This project has two local stdio channel servers:
+This project has two local stdio channel servers plus optional launcher modes:
 
 | Binary / entrypoint | Best for | Delivery model |
 |---|---|---|
 | `agent-channel` / `src/channel.ts` | Claude Code | Pushes Claude-specific `notifications/claude/channel` messages that render as `<channel>` tags |
+| `agent-channel --claude` | Claude Code | Starts Claude Code with channels enabled and tracks controller presence |
+| `agent-channel --codex` | Codex | Starts `codex app-server`, creates/resumes a thread, and injects channel batches into turns |
 | `agent-channel-generic` / `src/channel-generic.ts` | Codex, Cursor, Gemini, other MCP clients | Exposes tools the agent calls explicitly: `poll_channel_messages`, `channel_status` |
 
-Both channel servers read Redis Streams directly, so they need `AGENT_ID` and `REDIS_URI`.
+The channel servers and launcher modes read Redis Streams directly, so they need `AGENT_ID` and `REDIS_URI`.
 They do not replace `agent-comm`: the channel server receives work, while `agent-comm` provides action tools such as `reply`, `publish`, `send_direct`, `subscribe`, and `get_history`.
 
 ## Build Or Install
@@ -53,9 +55,60 @@ claude --channels server:agent-channel
 
 When a Telegram or inter-agent message arrives, Claude receives a `<channel>` tag and can respond with the `agent-comm` tools.
 
+### Claude Launcher
+
+After registering `agent-comm` and `agent-channel`, you can let the local binary start Claude Code and refresh controller presence while Claude is alive:
+
+```bash
+agent-channel --claude \
+  --agent-id frontend-agent \
+  --redis-uri redis://localhost:6379 \
+  --sse-url http://localhost:3101/sse \
+  --cwd /absolute/path/to/project \
+  --restart
+```
+
+This mode is lifecycle-only. Claude still receives messages through the existing Claude Channels MCP server; `ClaudeDriver.send()` does not consume channel messages itself.
+
 ## Codex CLI
 
-Codex does not use Claude's `notifications/claude/channel` extension. Use the generic polling server instead.
+Codex does not use Claude's `notifications/claude/channel` extension. Prefer the Codex launcher for always-on operation, or use the generic polling server for an explicit MCP tool polling loop.
+
+### Codex Launcher
+
+```bash
+agent-channel --codex \
+  --agent-id frontend-agent \
+  --redis-uri redis://localhost:6379 \
+  --cwd /absolute/path/to/project \
+  --restart
+```
+
+The launcher:
+
+1. Starts `codex app-server --listen stdio://`.
+2. Creates a new Codex thread or resumes the thread id stored at `agent:<id>:codex_thread`.
+3. Reads Telegram/channel batches from Redis.
+4. Injects each batch into a Codex turn.
+5. Uses `turn/steer` for mandatory messages that arrive while a turn is active.
+
+The launcher does not scrape assistant text and send Telegram replies by itself. The Codex agent should call `agent-comm` tools (`reply`, `publish`, `send_direct`) during the turn.
+
+Useful options:
+
+```bash
+agent-channel --codex \
+  --agent-id frontend-agent \
+  --redis-uri redis://localhost:6379 \
+  --cwd /absolute/path/to/project \
+  --model gpt-5.4 \
+  --approval-policy never \
+  --restart
+```
+
+Use `--approval-policy never` only in trusted local workspaces.
+
+### Codex Generic Polling
 
 Add the generic channel server:
 
