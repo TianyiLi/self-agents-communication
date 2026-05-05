@@ -1,5 +1,8 @@
 # Channel Clients
 
+For the planned always-on runtime launcher work, see
+[Agent Channel Session Drivers Plan](./session-drivers-plan.md).
+
 This project has two local stdio channel servers:
 
 | Binary / entrypoint | Best for | Delivery model |

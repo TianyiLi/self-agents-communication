@@ -4,7 +4,12 @@ export class RedisService {
   client!: RedisClientType;
 
   async connect(uri: string) {
-    this.client = createClient({ url: uri });
+    this.client = createClient({
+      url: uri,
+      socket: {
+        reconnectStrategy: false,
+      },
+    });
     this.client.on("error", (err) => process.stderr.write(`Redis error: ${err}\n`));
     await this.client.connect();
   }
@@ -115,6 +120,15 @@ export class RedisService {
     } else {
       await this.client.set(key, value);
     }
+  }
+
+  async setNx(key: string, value: string, ttl?: number): Promise<boolean> {
+    const options = ttl ? { NX: true as const, EX: ttl } : { NX: true as const };
+    return (await this.client.set(key, value, options)) === "OK";
+  }
+
+  async expire(key: string, ttl: number) {
+    await this.client.expire(key, ttl);
   }
 
   async get(key: string): Promise<string | null> {
