@@ -10,9 +10,18 @@ describe("channel CLI parser", () => {
   });
 
   it("selects setup and remove modes", () => {
-    expect(parseChannelCli(["--mcp-setup", "--agent-id", "agent-a", "--sse-url", "http://localhost:3101/sse"], {})).toMatchObject({
+    expect(parseChannelCli([
+      "--mcp-setup",
+      "--agent-id",
+      "agent-a",
+      "--channel-hub-url",
+      "http://localhost:3200",
+      "--sse-url",
+      "http://localhost:3101/sse",
+    ], {})).toMatchObject({
       kind: "mcp-setup",
       agentId: "agent-a",
+      channelHubUrl: "http://localhost:3200",
       sseUrl: "http://localhost:3101/sse",
     });
     expect(parseChannelCli(["--mcp-remove"], {})).toEqual({ kind: "mcp-remove" });
@@ -33,6 +42,13 @@ describe("channel CLI parser", () => {
       config: {
         cwd: "/tmp/project",
         model: "gpt-5.4",
+      },
+    });
+    expect(parseChannelCli(["--codex"], { CHANNEL_HUB_URL: "http://localhost:3200" })).toMatchObject({
+      kind: "launcher",
+      driver: "codex",
+      config: {
+        channelHubUrl: "http://localhost:3200",
       },
     });
   });
@@ -157,4 +173,3 @@ function message(id: string, content: string, mustReply: "true" | "false"): Chan
     mediaLatencyMs: 0,
   };
 }
-

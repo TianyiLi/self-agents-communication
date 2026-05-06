@@ -3,17 +3,46 @@
 For implementation details behind the launcher modes, see
 [Agent Channel Session Drivers Plan](./session-drivers-plan.md).
 
-This project has two local stdio channel servers plus optional launcher modes:
+This project has a central channel hub service, two local stdio channel clients, and optional launcher modes:
 
 | Binary / entrypoint | Best for | Delivery model |
 |---|---|---|
+| `channel-hub` / `src/channel-hub.ts` | Shared Docker infrastructure | Central HTTP hub. It is the only channel process that reads Redis Streams when clients set `CHANNEL_HUB_URL` |
 | `agent-channel` / `src/channel.ts` | Claude Code | Pushes Claude-specific `notifications/claude/channel` messages that render as `<channel>` tags |
 | `agent-channel --claude` | Claude Code | Starts Claude Code with channels enabled and tracks controller presence |
 | `agent-channel --codex` | Codex | Starts `codex app-server`, creates/resumes a thread, and injects channel batches into turns |
 | `agent-channel-generic` / `src/channel-generic.ts` | Codex, Cursor, Gemini, other MCP clients | Exposes tools the agent calls explicitly: `poll_channel_messages`, `channel_status` |
 
-The channel servers and launcher modes read Redis Streams directly, so they need `AGENT_ID` and `REDIS_URI`.
+Prefer running the central hub and giving channel clients `CHANNEL_HUB_URL`. In that mode, channel clients do not connect to Redis or own Redis consumer groups. If `CHANNEL_HUB_URL` is not set, the clients keep the old direct Redis mode for local development and migration.
 They do not replace `agent-comm`: the channel server receives work, while `agent-comm` provides action tools such as `reply`, `publish`, `send_direct`, `subscribe`, and `get_history`.
+
+## Central Channel Hub
+
+Start the hub as a Docker service:
+
+```bash
+docker compose up -d channel-hub
+```
+
+or during development:
+
+```bash
+REDIS_URI=redis://localhost:6379 CHANNEL_HUB_PORT=3200 bun run start:hub
+```
+
+Then point channel clients at it:
+
+```bash
+export CHANNEL_HUB_URL=http://localhost:3200
+```
+
+The hub exposes:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Basic health and active reader count |
+| `GET /agents/:agentId/messages?block_ms=5000&count=10` | Long-poll one agent's inbox/channel streams |
+| `GET /agents/:agentId/events` | SSE stream of channel message batches |
 
 ## Build Or Install
 
@@ -47,7 +76,7 @@ claude mcp add agent-comm --transport sse http://localhost:3101/sse
 
 claude mcp add agent-channel \
   -e AGENT_ID=frontend-agent \
-  -e REDIS_URI=redis://localhost:6379 \
+  -e CHANNEL_HUB_URL=http://localhost:3200 \
   -- bun /absolute/path/to/src/channel.ts
 
 claude --channels server:agent-channel
@@ -62,7 +91,7 @@ After registering `agent-comm` and `agent-channel`, you can let the local binary
 ```bash
 agent-channel --claude \
   --agent-id frontend-agent \
-  --redis-uri redis://localhost:6379 \
+  --channel-hub-url http://localhost:3200 \
   --sse-url http://localhost:3101/sse \
   --cwd /absolute/path/to/project \
   --restart
@@ -79,7 +108,7 @@ Codex does not use Claude's `notifications/claude/channel` extension. Prefer the
 ```bash
 agent-channel --codex \
   --agent-id frontend-agent \
-  --redis-uri redis://localhost:6379 \
+  --channel-hub-url http://localhost:3200 \
   --cwd /absolute/path/to/project \
   --restart
 ```
@@ -88,7 +117,7 @@ The launcher:
 
 1. Starts `codex app-server --listen stdio://`.
 2. Creates a new Codex thread or resumes the thread id stored at `agent:<id>:codex_thread`.
-3. Reads Telegram/channel batches from Redis.
+3. Reads Telegram/channel batches from the central channel hub.
 4. Injects each batch into a Codex turn.
 5. Uses `turn/steer` for mandatory messages that arrive while a turn is active.
 
@@ -99,7 +128,7 @@ Useful options:
 ```bash
 agent-channel --codex \
   --agent-id frontend-agent \
-  --redis-uri redis://localhost:6379 \
+  --channel-hub-url http://localhost:3200 \
   --cwd /absolute/path/to/project \
   --model gpt-5.4 \
   --approval-policy never \
@@ -115,7 +144,7 @@ Add the generic channel server:
 ```bash
 codex mcp add agent-channel-generic \
   --env AGENT_ID=frontend-agent \
-  --env REDIS_URI=redis://localhost:6379 \
+  --env CHANNEL_HUB_URL=http://localhost:3200 \
   -- bun /absolute/path/to/src/channel-generic.ts
 ```
 
@@ -124,7 +153,7 @@ Or, if you installed the binaries:
 ```bash
 codex mcp add agent-channel-generic \
   --env AGENT_ID=frontend-agent \
-  --env REDIS_URI=redis://localhost:6379 \
+  --env CHANNEL_HUB_URL=http://localhost:3200 \
   -- agent-channel-generic
 ```
 
@@ -174,7 +203,7 @@ For clients without Claude Channels, configure two MCP servers:
       "args": ["/absolute/path/to/src/channel-generic.ts"],
       "env": {
         "AGENT_ID": "frontend-agent",
-        "REDIS_URI": "redis://localhost:6379"
+        "CHANNEL_HUB_URL": "http://localhost:3200"
       }
     }
   }
@@ -214,10 +243,10 @@ Then instruct the agent to call `poll_channel_messages` when it should wait for 
 }
 ```
 
-`channel_status` returns the current agent ID, Redis URI, inbox stream, and subscribed channels.
+`channel_status` returns the current agent ID, delivery mode, hub URL when configured, and inbox stream.
 
 ## Limitations
 
 - `agent-channel-generic` is polling, not push. The model must call `poll_channel_messages`.
-- `poll_channel_messages` acknowledges messages after reading them. Do not run multiple generic channel readers for the same `AGENT_ID` unless you intentionally want competing consumers.
+- `poll_channel_messages` acknowledges messages after reading them. With `CHANNEL_HUB_URL`, the central hub owns that acknowledgement. Without it, direct Redis mode still uses per-client consumer groups.
 - The channel server receives messages only. Use `agent-comm` tools to respond.

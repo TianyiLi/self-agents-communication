@@ -1,4 +1,4 @@
-FROM oven/bun:1-alpine
+FROM oven/bun:1-alpine AS base
 
 WORKDIR /app
 
@@ -7,6 +7,10 @@ RUN bun install --frozen-lockfile --production
 
 COPY . .
 
-EXPOSE ${MCP_PORT:-3100}
+FROM base AS channel-hub
+EXPOSE 3200
+CMD ["bun", "run", "start:hub"]
 
-CMD ["bun", "run", "src/index.ts"]
+FROM base AS agent
+EXPOSE 3100
+CMD ["bun", "run", "start"]

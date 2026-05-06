@@ -21,7 +21,12 @@ A Docker-based multi-agent communication system where each agent runs an indepen
         │   └─────────────────────────────┘
         │
         │   ┌─────────────────────────────┐
-        └──▶│   local channel runtimes    │
+        └──▶│   central channel hub       │
+            │   Redis reader + HTTP/SSE   │
+            └──────────────┬──────────────┘
+                           │
+            ┌──────────────▼──────────────┐
+            │   local channel clients     │
             │   Claude: push <channel>    │
             │   Codex: app-server launcher│
             │   Cursor/others: poll tool  │
@@ -33,14 +38,16 @@ A Docker-based multi-agent communication system where each agent runs an indepen
 | Name | Transport / mode | Purpose | Where it runs | Needs `REDIS_URI`? |
 |---|---|---|---|---|
 | `agent-comm` | SSE (HTTP) | Provides tools (`reply`, `publish`, `subscribe`, `send_direct`, …) for any MCP client to call | Inside the agent's Docker container, exposed at `http://localhost:<MCP_PORT>/sse` | No — Redis is configured inside the container |
-| `agent-channel` | stdio | Pushes `<channel>` notifications (Telegram & inter-agent messages) into the AI session, triggering automatic responses | Locally as a binary, spawned by the MCP client | Yes — reads Redis Streams directly |
-| `agent-channel --claude` | launcher | Starts Claude Code with `--channels server:agent-channel` and keeps controller presence online while Claude runs | Locally as a foreground launcher | Yes — manages launcher state in Redis |
-| `agent-channel --codex` | launcher | Starts `codex app-server`, creates/resumes a Codex thread, and injects channel messages into turns | Locally as a foreground launcher | Yes — reads Redis Streams directly |
-| `agent-channel-generic` | stdio | Portable channel reader with `poll_channel_messages` and `channel_status` tools for clients without Claude Channels | Locally as a binary, spawned by the MCP client | Yes — reads Redis Streams directly |
+| `channel-hub` | HTTP/SSE | Central channel hub. Owns Redis Stream reads for all local channel clients | Docker service, exposed at `http://localhost:3200` | Yes |
+| `agent-channel` | stdio | Pushes `<channel>` notifications (Telegram & inter-agent messages) into the AI session, triggering automatic responses | Locally as a binary, spawned by the MCP client | No when `CHANNEL_HUB_URL` is set |
+| `agent-channel --claude` | launcher | Starts Claude Code with `--channels server:agent-channel` and keeps controller presence online while Claude runs | Locally as a foreground launcher | No for channel delivery when `CHANNEL_HUB_URL` is set |
+| `agent-channel --codex` | launcher | Starts `codex app-server`, creates/resumes a Codex thread, and injects channel messages into turns | Locally as a foreground launcher | No for channel delivery when `CHANNEL_HUB_URL` is set |
+| `agent-channel-generic` | stdio | Portable channel reader with `poll_channel_messages` and `channel_status` tools for clients without Claude Channels | Locally as a binary, spawned by the MCP client | No when `CHANNEL_HUB_URL` is set |
 
 `agent-comm` is enough for any MCP client to send replies and communicate with agents.
 `agent-channel` is Claude Code-only and adds real-time push on top.
 `agent-channel --codex` is the always-on Codex path. `agent-channel-generic` remains the portable fallback for Codex, Cursor, Gemini, and other MCP clients that can call tools but do not implement Claude's channel notification extension.
+Prefer routing these channel clients through the `channel-hub` Docker service so one central process controls Redis consumption.
 
 ## Documentation
 
@@ -116,7 +123,7 @@ bun run build
 
 agent-channel --codex \
   --agent-id frontend-agent \
-  --redis-uri redis://localhost:6379 \
+  --channel-hub-url http://localhost:3200 \
   --cwd /absolute/path/to/your/project \
   --restart
 ```
@@ -134,7 +141,7 @@ bun run build
 # Codex CLI: add the generic channel server
 codex mcp add agent-channel-generic \
   --env AGENT_ID=frontend-agent \
-  --env REDIS_URI=redis://localhost:6379 \
+  --env CHANNEL_HUB_URL=http://localhost:3200 \
   -- bun /absolute/path/to/src/channel-generic.ts
 
 # Codex CLI: add agent action tools when supported by your Codex build
@@ -154,7 +161,7 @@ For Cursor or other JSON-configured MCP clients:
       "args": ["/absolute/path/to/src/channel-generic.ts"],
       "env": {
         "AGENT_ID": "frontend-agent",
-        "REDIS_URI": "redis://localhost:6379"
+        "CHANNEL_HUB_URL": "http://localhost:3200"
       }
     }
   }
@@ -166,7 +173,7 @@ The generic server exposes:
 | Tool | Purpose |
 |------|---------|
 | `poll_channel_messages` | Wait for Telegram or inter-agent messages; returns an empty list on timeout |
-| `channel_status` | Show subscriptions and inbox stream details |
+| `channel_status` | Show channel reader mode and inbox location |
 
 See [docs/channel-clients.md](./docs/channel-clients.md) for launcher mode, the Codex polling loop, and response rules.
 
@@ -181,7 +188,7 @@ claude mcp add agent-comm --transport sse http://localhost:3101/sse
 # 2. Add stdio channel server (provides push notifications)
 claude mcp add agent-channel \
   -e AGENT_ID=frontend-agent \
-  -e REDIS_URI=redis://localhost:6379 \
+  -e CHANNEL_HUB_URL=http://localhost:3200 \
   -- bun /absolute/path/to/src/channel.ts
 
 # 3. Start Claude Code with channels enabled
@@ -205,7 +212,7 @@ After registering MCP servers, you can also let `agent-channel` start and monito
 ```bash
 agent-channel --claude \
   --agent-id frontend-agent \
-  --redis-uri redis://localhost:6379 \
+  --channel-hub-url http://localhost:3200 \
   --sse-url http://localhost:3101/sse \
   --cwd /absolute/path/to/your/project \
   --restart

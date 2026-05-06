@@ -11,6 +11,20 @@ services:
       interval: 10s
       retries: 3
 
+  channel-hub:
+    build:
+      context: .
+      target: channel-hub
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      REDIS_URI: redis://redis:6379
+      CHANNEL_HUB_PORT: 3200
+    ports:
+      - "3200:3200"
+
   frontend-agent:
     build: .
     depends_on:

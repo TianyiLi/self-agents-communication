@@ -3,7 +3,7 @@ BINARY_NAME = agent-channel
 
 PLATFORMS = linux-x64 linux-arm64 darwin-x64 darwin-arm64 windows-x64
 
-.PHONY: build build-all $(addprefix build-,$(PLATFORMS)) install uninstall mcp-setup mcp-remove docker-up docker-down test clean
+.PHONY: build build-all $(addprefix build-,$(PLATFORMS)) install uninstall mcp-setup mcp-remove docker-up docker-down docker-rebuild rebuild docker-logs dev test typecheck clean
 
 # === Build ===
 
@@ -40,6 +40,7 @@ mcp-setup: install
 	$(BINARY_NAME) --mcp-setup \
 		--agent-id $(or $(AGENT_ID),frontend-agent) \
 		--redis-uri $(or $(REDIS_URI),redis://localhost:6379) \
+		$(if $(CHANNEL_HUB_URL),--channel-hub-url $(CHANNEL_HUB_URL)) \
 		$(if $(SSE_URL),--sse-url $(SSE_URL))
 
 mcp-remove:
@@ -55,6 +56,8 @@ docker-down:
 
 docker-rebuild:
 	docker compose up -d --build --force-recreate
+
+rebuild: docker-rebuild
 
 docker-logs:
 	docker compose logs -f

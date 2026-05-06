@@ -1,13 +1,14 @@
 export type ChannelCliMode =
   | { kind: "server" }
   | { kind: "help" }
-  | { kind: "mcp-setup"; agentId: string; redisUri: string; sseUrl?: string }
+  | { kind: "mcp-setup"; agentId: string; redisUri: string; channelHubUrl?: string; sseUrl?: string }
   | { kind: "mcp-remove" }
   | { kind: "launcher"; driver: "claude" | "codex"; config: LauncherCliConfig };
 
 export interface LauncherCliConfig {
   agentId: string;
   redisUri: string;
+  channelHubUrl?: string;
   cwd: string;
   restart: boolean;
   restartDelayMs: number;
@@ -27,12 +28,14 @@ export function parseChannelCli(args: string[], env: Record<string, string | und
 
   const agentId = getArg(args, "--agent-id") || env.AGENT_ID || "default-agent";
   const redisUri = getArg(args, "--redis-uri") || env.REDIS_URI || "redis://localhost:6379";
+  const channelHubUrl = getArg(args, "--channel-hub-url") || env.CHANNEL_HUB_URL;
 
   if (has(args, "--mcp-setup")) {
     return {
       kind: "mcp-setup",
       agentId: getArg(args, "--agent-id") || env.AGENT_ID || "frontend-agent",
       redisUri,
+      channelHubUrl,
       sseUrl: getArg(args, "--sse-url"),
     };
   }
@@ -47,6 +50,7 @@ export function parseChannelCli(args: string[], env: Record<string, string | und
     config: {
       agentId,
       redisUri,
+      channelHubUrl,
       cwd: getArg(args, "--cwd") || process.cwd(),
       restart: has(args, "--restart"),
       restartDelayMs: parsePositiveInteger(getArg(args, "--restart-delay-ms"), 2000),
@@ -76,6 +80,7 @@ Usage:
 Environment:
   AGENT_ID      Agent identifier (default: default-agent)
   REDIS_URI     Redis connection (default: redis://localhost:6379)
+  CHANNEL_HUB_URL  Central channel hub URL for clients (optional)
 
 MCP setup options:
   --agent-id    Override AGENT_ID for MCP config
@@ -84,6 +89,7 @@ MCP setup options:
 
 Launcher options:
   --cwd PATH
+  --channel-hub-url URL
   --restart
   --restart-delay-ms N
   --max-restarts N
@@ -115,4 +121,3 @@ function parsePositiveInteger(raw: string | undefined, fallback: number) {
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
-

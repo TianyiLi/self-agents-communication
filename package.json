@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "bun ./src/index.ts",
+    "start:hub": "bun ./src/channel-hub.ts",
     "dev": "bun --watch ./src/index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",

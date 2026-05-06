@@ -1,7 +1,8 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { buildChannelNotification } from "./format";
-import { buildChannelInstructions, ChannelStreamReader } from "./shared";
+import { createChannelMessageReader, type ChannelMessageReader } from "./client";
+import { buildChannelInstructions } from "./shared";
 
 const CHANNEL_BATCH_READ_COUNT = 100;
 const CHANNEL_BATCH_MAX_MESSAGES = 500;
@@ -13,6 +14,7 @@ export interface ChannelServerConfig {
   agentDesc: string;
   agentCaps: string;
   redisUri: string;
+  channelHubUrl?: string;
 }
 
 export function configFromEnv(): ChannelServerConfig {
@@ -24,6 +26,7 @@ export function configFromEnv(): ChannelServerConfig {
     agentDesc: Bun.env.AGENT_DESC || "",
     agentCaps: Bun.env.AGENT_CAPS || "",
     redisUri: Bun.env.REDIS_URI || "redis://localhost:6379",
+    channelHubUrl: Bun.env.CHANNEL_HUB_URL,
   };
 }
 
@@ -45,9 +48,10 @@ export async function startChannelServer(config = configFromEnv()) {
     }
   );
 
-  const reader = new ChannelStreamReader({
+  const reader = createChannelMessageReader({
     agentId: config.agentId,
     redisUri: config.redisUri,
+    channelHubUrl: config.channelHubUrl,
     mediaDirPrefix: "agent-channel-media",
   });
 
@@ -79,7 +83,7 @@ export async function startChannelServer(config = configFromEnv()) {
   }
 }
 
-export async function readAvailableBatch(reader: ChannelStreamReader) {
+export async function readAvailableBatch(reader: ChannelMessageReader) {
   const messages = await reader.read(5000, CHANNEL_BATCH_READ_COUNT);
   if (messages.length === 0) return messages;
 
@@ -91,4 +95,3 @@ export async function readAvailableBatch(reader: ChannelStreamReader) {
 
   return messages;
 }
-

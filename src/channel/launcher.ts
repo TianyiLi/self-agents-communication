@@ -1,5 +1,5 @@
 import { RedisService } from "../services/redis";
-import { ChannelStreamReader } from "./shared";
+import { createChannelMessageReader } from "./client";
 import { readAvailableBatch } from "./server";
 import type { LauncherCliConfig } from "./cli";
 import { LauncherPresence } from "./launcher-presence";
@@ -79,6 +79,7 @@ function createDriver(
     return new ClaudeDriver({
       agentId: config.agentId,
       redisUri: config.redisUri,
+      channelHubUrl: config.channelHubUrl,
       cwd: config.cwd,
       sseUrl: config.sseUrl,
       skipMcpSetup: config.skipMcpSetup,
@@ -120,9 +121,10 @@ async function runCodexReadLoop(
   config: LauncherCliConfig,
   isStopping: () => boolean
 ) {
-  const reader = new ChannelStreamReader({
+  const reader = createChannelMessageReader({
     agentId: config.agentId,
     redisUri: config.redisUri,
+    channelHubUrl: config.channelHubUrl,
     mediaDirPrefix: "agent-channel-media",
   });
   await reader.connect();

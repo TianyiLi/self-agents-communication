@@ -61,7 +61,7 @@ agent-channel-generic --help
 ```bash
 agent-channel --mcp-setup \
   --agent-id frontend-agent \
-  --redis-uri redis://localhost:6379 \
+  --channel-hub-url http://localhost:3200 \
   --sse-url http://localhost:3101/sse
 ```
 
@@ -70,7 +70,7 @@ This registers both MCP servers in one shot:
 | Server name | Transport | Purpose |
 |---|---|---|
 | `agent-comm` | SSE → `http://localhost:3101/sse` | Tools: `reply`, `publish`, `subscribe`, `send_direct`, … |
-| `agent-channel` | stdio → spawns the binary with `AGENT_ID` + `REDIS_URI` | Push notifications (`<channel>` tags) |
+| `agent-channel` | stdio → spawns the binary with `AGENT_ID` + `CHANNEL_HUB_URL` | Push notifications (`<channel>` tags) |
 
 Verify:
 
@@ -93,7 +93,7 @@ After `agent-channel --mcp-setup` has registered the MCP servers, the launcher c
 ```bash
 agent-channel --claude \
   --agent-id frontend-agent \
-  --redis-uri redis://localhost:6379 \
+  --channel-hub-url http://localhost:3200 \
   --sse-url http://localhost:3101/sse \
   --cwd /path/to/your/project \
   --restart
@@ -108,7 +108,7 @@ For always-on Codex, use the app-server launcher:
 ```bash
 agent-channel --codex \
   --agent-id frontend-agent \
-  --redis-uri redis://localhost:6379 \
+  --channel-hub-url http://localhost:3200 \
   --cwd /path/to/your/project \
   --restart
 ```
@@ -130,7 +130,7 @@ Codex agents can also use `agent-channel-generic` when you prefer an explicit po
 ```bash
 codex mcp add agent-channel-generic \
   --env AGENT_ID=frontend-agent \
-  --env REDIS_URI=redis://localhost:6379 \
+  --env CHANNEL_HUB_URL=http://localhost:3200 \
   -- agent-channel-generic
 ```
 
@@ -206,7 +206,7 @@ Claude calls the `reply` tool to send a response back to Telegram — if it appe
 
 ```bash
 # After code changes (rebuild image + binary)
-docker compose up -d --build --force-recreate && bun run install:bin
+make rebuild && bun run install:bin
 
 # Stop containers, keep pairing state
 docker compose down

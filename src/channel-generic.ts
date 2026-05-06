@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { buildChannelInstructions, ChannelStreamReader } from "./channel/shared";
+import { createChannelMessageReader } from "./channel/client";
+import { buildChannelInstructions } from "./channel/shared";
 
 const args = process.argv.slice(2);
 
@@ -19,6 +20,7 @@ Environment:
   AGENT_DESC    Detailed description
   AGENT_CAPS    Comma-separated capabilities
   REDIS_URI     Redis connection (default: redis://localhost:6379)
+  CHANNEL_HUB_URL  Central channel hub URL. When set, this server does not connect to Redis.
 
 Client setup:
   Add this binary as a stdio MCP server in Codex, Cursor, or any MCP client.
@@ -36,10 +38,12 @@ const AGENT_ROLE = Bun.env.AGENT_ROLE || "general";
 const AGENT_DESC = Bun.env.AGENT_DESC || "";
 const AGENT_CAPS = Bun.env.AGENT_CAPS || "";
 const REDIS_URI = Bun.env.REDIS_URI || "redis://localhost:6379";
+const CHANNEL_HUB_URL = Bun.env.CHANNEL_HUB_URL;
 
-const reader = new ChannelStreamReader({
+const reader = createChannelMessageReader({
   agentId: AGENT_ID,
   redisUri: REDIS_URI,
+  channelHubUrl: CHANNEL_HUB_URL,
   mediaDirPrefix: "agent-channel-media",
 });
 
@@ -91,18 +95,18 @@ server.tool(
 
 server.tool(
   "channel_status",
-  "Return the current channel reader status and subscriptions for this agent.",
+  "Return the current channel reader mode and inbox location for this agent.",
   {},
   async () => {
     await reader.connect();
-    const subscriptions = await reader.redis.smembers(`agent:${AGENT_ID}:subscriptions`);
     return {
       content: [{
         type: "text" as const,
         text: JSON.stringify({
           agent_id: AGENT_ID,
-          redis_uri: REDIS_URI,
-          subscriptions,
+          channel_hub_url: CHANNEL_HUB_URL || "",
+          redis_uri: CHANNEL_HUB_URL ? "" : REDIS_URI,
+          mode: CHANNEL_HUB_URL ? "hub" : "redis",
           inbox_stream: `stream:agent:${AGENT_ID}:inbox`,
         }),
       }],

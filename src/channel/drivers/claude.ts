@@ -5,6 +5,7 @@ import type { DriverStatus, SessionDriver } from "./types";
 export interface ClaudeDriverConfig {
   agentId: string;
   redisUri: string;
+  channelHubUrl?: string;
   cwd: string;
   sseUrl?: string;
   skipMcpSetup: boolean;
@@ -80,11 +81,13 @@ export class ClaudeDriver implements SessionDriver {
       "agent-channel",
       "-e",
       `AGENT_ID=${this.config.agentId}`,
-      "-e",
-      `REDIS_URI=${this.config.redisUri}`,
-      "--",
-      process.execPath,
     ];
+    if (this.config.channelHubUrl) {
+      args.push("-e", `CHANNEL_HUB_URL=${this.config.channelHubUrl}`);
+    } else {
+      args.push("-e", `REDIS_URI=${this.config.redisUri}`);
+    }
+    args.push("--", process.execPath);
     execFileSync("claude", args, { stdio: "inherit" });
 
     if (this.config.sseUrl) {
@@ -99,4 +102,3 @@ export class ClaudeDriver implements SessionDriver {
     }
   }
 }
-
